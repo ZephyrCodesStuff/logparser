@@ -1,6 +1,6 @@
 from typing import List, Dict
-from SensorLogListener import SensorLogListener
-from SensorLogParser import SensorLogParser
+from gen.SensorLogListener import SensorLogListener
+from gen.SensorLogParser import SensorLogParser
 
 
 class SensorLogCollector(SensorLogListener):

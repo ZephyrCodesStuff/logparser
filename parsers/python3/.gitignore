@@ -1,0 +1,13 @@
+# Python objects
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ANTLR-generated files
+.antlr/
+*.interp
+*.tokens
+*Lexer.py
+*Parser.py
+*Listener.py

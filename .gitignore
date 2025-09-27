@@ -1,18 +1,7 @@
-# .gitignore file for an ANTLR project
-
 # OS files
 .DS_Store
 
-# Python objects
+# ANTLR source code
+.antlr
+antlr4/
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# ANTLR-generated files
-.antlr/
-*.interp
-*.tokens
-*Lexer.py
-*Parser.py
-*Listener.py

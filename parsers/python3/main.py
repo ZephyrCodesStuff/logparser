@@ -1,5 +1,5 @@
 # Parse a test file
-SAMPLE_FILE = "example_header.log"
+SAMPLE_FILE = "../../samples/example_header.log"
 
 def main():
     from sensorlog_wrapper import SensorLogParserWrapper

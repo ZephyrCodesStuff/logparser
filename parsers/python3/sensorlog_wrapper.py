@@ -32,8 +32,8 @@ class SensorLogParserWrapper:
 
     def parse_file(self, path: str) -> Tuple[object, object, object]:
         from antlr4 import FileStream, CommonTokenStream, ParseTreeWalker
-        from SensorLogLexer import SensorLogLexer
-        from SensorLogParser import SensorLogParser
+        from gen.SensorLogLexer import SensorLogLexer
+        from gen.SensorLogParser import SensorLogParser
 
         input_stream = FileStream(path, encoding='utf-8')
         lexer = SensorLogLexer(input_stream)
@@ -54,8 +54,8 @@ class SensorLogParserWrapper:
 
     def parse_string(self, text: str) -> Tuple[object, object, object]:
         from antlr4 import InputStream, CommonTokenStream, ParseTreeWalker
-        from SensorLogLexer import SensorLogLexer
-        from SensorLogParser import SensorLogParser
+        from gen.SensorLogLexer import SensorLogLexer
+        from gen.SensorLogParser import SensorLogParser
 
         input_stream = InputStream(text)
         lexer = SensorLogLexer(input_stream)
