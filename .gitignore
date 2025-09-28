@@ -5,3 +5,7 @@
 .antlr
 antlr4/
 __pycache__/
+
+# CMake files
+.cache
+build/
