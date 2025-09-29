@@ -2,7 +2,6 @@
 #include <iostream>
 #include "SensorLogLexer.h"
 #include "SensorLogParser.h"
-#include "antlr4-runtime.h"
 
 using namespace antlr4;
 

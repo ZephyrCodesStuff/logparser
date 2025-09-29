@@ -1,72 +1,45 @@
 # ANTLR4 parser for LogDevice files
 
-### Getting started with C++
+This repository uses CMake as the primary build system for the C++ parser.
 
-Go to the root of the repository, then:
+Requirements
+- CMake 3.15 or newer (the build uses FetchContent and modern policies)
+- A working C++17 compiler (g++, clang++, or MSVC)
+- Java runtime (for running the ANTLR generator jar when generating sources)
 
-```bash
-# Clone ANTLR4 C++ runtime
-git clone https://github.com/antlr/antlr4.git
-cd antlr4/runtime/Cpp
-mkdir build && cd build
-```
+How ANTLR is provided
+- The project does not vendor the `antlr4` repository. Instead, CMake will
+	automatically fetch the ANTLR sources at configure time (using FetchContent)
+	and build the C++ runtime as necessary. This keeps the repository smaller
+	and lets CMake manage the correct version for you.
 
-Now use `Make` or `Ninja` to build:
+Quick start (CMake workflow)
 
-```bash
-cmake ..
-make
-sudo make install
-```
+From the repository root:
 
-With `Ninja`:
-
-```bash
-cmake .. -G Ninja
-ninja
-sudo make install
-```
-
-## Running the parsers
-
-### Python
-
-Go to `parsers/python` and `./run.sh`
-
-### C++
-
-Go to `parsers/cpp` and `./run.sh`
-
-> This script expects the folder `antlr4` in the repository's root.
->
-> If you've moved it or cloned it in this folder, please adapt the script.
-
-### C++ (CMake) — build with automatic ANTLR generation
-
-If you prefer a CMake-based workflow (recommended for development), you can
-configure and build the C++ parser with CMake/Ninja. This project already
-contains a small CMake wrapper that will run the ANTLR tool to generate the
-C++ sources before compilation when needed.
-
-From the repository root, an example configure+build using the Homebrew
-ANTLR jar and the repo prebuilt C++ runtime is:
-
-```bash
-# Configure
-cmake -G Ninja -S parsers/cpp -B build
+```fish
+# Configure (this will fetch and build the ANTLR C++ runtime if needed)
+cmake -S parsers/cpp -B build -G Ninja
 
 # Build
-cmake --build build
+cmake --build build -- -j
 
-# Run
+# Run the parser
 ./build/main samples/example_header.log
 ```
 
-Notes:
+Notes
+- Network access is required at configure time the first time CMake fetches
+	the ANTLR sources. Subsequent config/builds will reuse the downloaded copy
+	in the build directory.
+- If you need offline builds or reproducible environments, pin the ANTLR
+	tag/commit in `parsers/cpp/CMakeLists.txt` (the default is v4.13.2).
+- Manual Make/Ninja instructions and the repository-local `antlr4` layout have
+	been removed. Use the CMake workflow above.
 
-- If you use the fish shell, substitute `$(which java)` with `(which java)`.
-- The CMakeLists.txt attempts to prefer the repo-local prebuilt runtime and
-	a Homebrew-installed ANTLR jar automatically; you can still pass them to
-	override detection.
-- If you prefer the original `run.sh` script (which uses a local g++ compile
-	invocation), it is still available at `parsers/cpp/run.sh`.
+Other parsers
+- Python parser: see `parsers/python` and its `run.sh` script.
+
+If you want me to add an optional command to pre-populate a local `antlr4`
+clone for offline use, I can add a small script or Make target that performs
+that step.

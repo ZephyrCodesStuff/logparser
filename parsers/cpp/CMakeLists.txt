@@ -1,8 +1,5 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 2.8.12...3.15)
 project(logfile_parser_cpp LANGUAGES CXX)
-
-# Make our local cmake modules (including FindANTLR.cmake) discoverable
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../../antlr4/runtime/Cpp/cmake")
 
 # Prefer a known Homebrew install or project-local jar if present
 if(NOT ANTLR_EXECUTABLE)
@@ -15,18 +12,83 @@ if(NOT ANTLR_EXECUTABLE)
     endif()
 endif()
 
-# Prefer local prebuilt C++ runtime if present (lib + headers)
-if(NOT ANTLR_RUNTIME_LIBRARY AND NOT ANTLR_LIBRARY)
-    set(_local_runtime_lib "${CMAKE_CURRENT_LIST_DIR}/../../antlr4/runtime/Cpp/dist/libantlr4-runtime.dylib")
-    set(_local_runtime_inc "${CMAKE_CURRENT_LIST_DIR}/../../antlr4/runtime/Cpp/runtime/src")
-    if(EXISTS "${_local_runtime_lib}" AND EXISTS "${_local_runtime_inc}")
-        set(ANTLR_RUNTIME_LIBRARY "${_local_runtime_lib}" CACHE FILEPATH "Path to ANTLR C++ runtime library" FORCE)
-        set(ANTLR_RUNTIME_INCLUDE_DIR "${_local_runtime_inc}" CACHE PATH "Path to ANTLR C++ runtime include dir" FORCE)
+# Try to find ANTLR runtime package/config first (optional). If not found,
+# FetchContent will obtain the ANTLR sources and build the runtime.
+find_package(ANTLR QUIET)
+
+# If find_package didn't provide usable imported/alias targets or variables,
+# try fetching the antlr4 repository via FetchContent and building the C++ runtime
+# so consumers can link against a known target. This will be attempted before
+# falling back to any repository-local bundled runtime sources.
+if(NOT TARGET ANTLR4::Runtime AND NOT TARGET ANTLR::Runtime)
+
+    include(FetchContent)
+
+    # Only fetch/build if we don't already have runtime variables pointing to a prebuilt lib.
+    if(NOT DEFINED ANTLR_RUNTIME_LIBRARY AND NOT DEFINED ANTLR_LIBRARY)
+        message(STATUS "Attempting to FetchContent antlr/antlr4 to build the C++ runtime")
+
+        FetchContent_Declare(
+            antlr4
+            GIT_REPOSITORY https://github.com/antlr/antlr4.git
+            # Pin to a compatible version (change tag if you want a different release)
+            GIT_TAG 4.13.2
+        )
+
+    # This will clone into the build directory and make antlr4_SOURCE_DIR available.
+    FetchContent_MakeAvailable(antlr4)
+
+        # Make ANTLR CMake helper macros discoverable if provided by the fetched source.
+        if(DEFINED antlr4_SOURCE_DIR)
+            set(_antlr_cmake_dir "${antlr4_SOURCE_DIR}/runtime/Cpp/cmake")
+            if(EXISTS "${_antlr_cmake_dir}")
+                list(APPEND CMAKE_MODULE_PATH "${_antlr_cmake_dir}")
+                # Also include any helper cmake files so macros (e.g. ANTLR_TARGET)
+                # become available in this directory scope.
+                file(GLOB _antlr_cmake_files "${_antlr_cmake_dir}/*.cmake")
+                foreach(_cmake_file IN LISTS _antlr_cmake_files)
+                    include(${_cmake_file})
+                endforeach()
+            endif()
+        endif()
+
+        # If the fetched project didn't already add the runtime as a target, add it explicitly.
+        if(NOT (TARGET antlr4_shared OR TARGET antlr4_static))
+            if(EXISTS "${antlr4_SOURCE_DIR}/runtime/Cpp/CMakeLists.txt")
+                add_subdirectory("${antlr4_SOURCE_DIR}/runtime/Cpp" "${CMAKE_CURRENT_BINARY_DIR}/antlr4-runtime-fetch")
+
+                # After adding the runtime subdirectory, ensure the runtime's cmake helpers
+                # are available on CMAKE_MODULE_PATH for macros like ANTLR_TARGET.
+                if(EXISTS "${antlr4_SOURCE_DIR}/runtime/Cpp/cmake")
+                    list(APPEND CMAKE_MODULE_PATH "${antlr4_SOURCE_DIR}/runtime/Cpp/cmake")
+                    file(GLOB _antlr_cmake_files2 "${antlr4_SOURCE_DIR}/runtime/Cpp/cmake/*.cmake")
+                    foreach(_cmake_file2 IN LISTS _antlr_cmake_files2)
+                        include(${_cmake_file2})
+                    endforeach()
+                endif()
+            endif()
+        endif()
+
+        # Create alias targets matching common Find module conventions so existing code can link unchanged.
+        if(TARGET antlr4_shared)
+            if(NOT TARGET ANTLR4::Runtime)
+                add_library(ANTLR4::Runtime ALIAS antlr4_shared)
+            endif()
+            if(NOT TARGET ANTLR::Runtime)
+                add_library(ANTLR::Runtime ALIAS antlr4_shared)
+            endif()
+        elseif(TARGET antlr4_static)
+            if(NOT TARGET ANTLR4::Runtime)
+                add_library(ANTLR4::Runtime ALIAS antlr4_static)
+            endif()
+            if(NOT TARGET ANTLR::Runtime)
+                add_library(ANTLR::Runtime ALIAS antlr4_static)
+            endif()
+        else()
+            message(STATUS "FetchContent provided antlr4 but runtime targets not found; will try bundled runtime or Find module variables")
+        endif()
     endif()
 endif()
-
-# Find ANTLR runtime (expects a FindANTLR.cmake in the module path)
-find_package(ANTLR REQUIRED)
 
 # Add your executable
 add_executable(main main.cpp)
@@ -60,29 +122,33 @@ endif()
 
 # Configure ANTLR-generated sources from `./gen`
 if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/gen/SensorLog.g4")
-    ANTLR_TARGET(LogfileParser "${CMAKE_CURRENT_LIST_DIR}/gen/SensorLog.g4"
-        PACKAGE logfile
-        OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/gen"
-        DEPENDS_ANTLR
-    )
+    if(COMMAND ANTLR_TARGET)
+        ANTLR_TARGET(LogfileParser "${CMAKE_CURRENT_LIST_DIR}/gen/SensorLog.g4"
+            PACKAGE logfile
+            OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/gen"
+            DEPENDS_ANTLR
+        )
 
-    add_custom_target(
-        GenerateLogfileParser
-        DEPENDS ${ANTLR_LogfileParser_CXX_OUTPUTS}
-    )
+        add_custom_target(
+            GenerateLogfileParser
+            DEPENDS ${ANTLR_LogfileParser_CXX_OUTPUTS}
+        )
 
-    add_dependencies(main GenerateLogfileParser)
+        add_dependencies(main GenerateLogfileParser)
 
-    target_sources(main PRIVATE ${ANTLR_LogfileParser_CXX_OUTPUTS})
+        target_sources(main PRIVATE ${ANTLR_LogfileParser_CXX_OUTPUTS})
 
-    target_include_directories(main PRIVATE
-        ${CMAKE_CURRENT_BINARY_DIR}/gen
-    )
+        target_include_directories(main PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}/gen
+        )
 
-    if(DEFINED ANTLR_RUNTIME_INCLUDE_DIR)
-        target_include_directories(main PRIVATE ${ANTLR_RUNTIME_INCLUDE_DIR})
-    elseif(DEFINED ANTLR_INCLUDE_DIRS)
-        target_include_directories(main PRIVATE ${ANTLR_INCLUDE_DIRS})
+        if(DEFINED ANTLR_RUNTIME_INCLUDE_DIR)
+            target_include_directories(main PRIVATE ${ANTLR_RUNTIME_INCLUDE_DIR})
+        elseif(DEFINED ANTLR_INCLUDE_DIRS)
+            target_include_directories(main PRIVATE ${ANTLR_INCLUDE_DIRS})
+        endif()
+    else()
+        message(FATAL_ERROR "ANTLR_TARGET macro not found. Ensure ANTLR CMake helpers are discoverable.\nEither install ANTLR CMake package and set ANTLR_DIR/CMAKE_PREFIX_PATH, or allow CMake to fetch antlr4 (check FetchContent and network).")
     endif()
 else()
     message(FATAL_ERROR "Grammar file 'gen/SensorLog.g4' not found")
