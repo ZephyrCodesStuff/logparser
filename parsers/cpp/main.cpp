@@ -257,9 +257,82 @@ int main( int argc, const char* argv[] )
         return 3;
     }
 
-    // First section is header: create ANTLR input from it
-    std::string headerText( sections[0].begin(), sections[0].end() );
-    ANTLRInputStream input( headerText );
+    // Extract header: search entire file for the ASCII header start "$ " and
+    // the terminating backslash (prefer the 5-byte sequence 0x5C 0x1C 0x1C 0x1C 0x1C).
+    std::string headerText;
+    try
+    {
+        // search for start "$ " (0x24 0x20)
+        size_t start = std::string::npos;
+        for ( size_t i = 0; i + 2 <= fileBytes.size(); ++i )
+        {
+            if ( fileBytes[i] == 0x24 && fileBytes[i + 1] == 0x20 )
+            {
+                start = i;
+                break;
+            }
+        }
+        if ( start == std::string::npos )
+        {
+            std::cerr << "Warning: '$ ' not found in file; using first section "
+                         "as header\n";
+            headerText.assign( sections[0].begin(), sections[0].end() );
+        } else {
+            const uint8_t term5[5] = { 0x5C, 0x1C, 0x1C, 0x1C, 0x1C };
+            size_t termPos = std::string::npos;
+            for ( size_t i = start; i + 5 <= fileBytes.size(); ++i )
+            {
+                if ( memcmp( &fileBytes[i], term5, 5 ) == 0 )
+                {
+                    termPos = i;
+                    break;
+                }
+            }
+            if ( termPos == std::string::npos )
+            {
+                // fallback: first backslash after start
+                for ( size_t i = start; i < fileBytes.size(); ++i )
+                {
+                    if ( fileBytes[i] == 0x5C )
+                    {
+                        termPos = i;
+                        break;
+                    }
+                }
+            }
+            size_t endExclusive = ( termPos == std::string::npos )
+                                      ? fileBytes.size()
+                                      : ( termPos + 1 );
+            headerText.assign( (const char*)fileBytes.data() + start,
+                               (const char*)fileBytes.data() + endExclusive );
+        }
+    } catch ( const std::exception& ex )
+    {
+        std::cerr << "Failed to extract header: " << ex.what() << std::endl;
+        return 4;
+    }
+
+    // Convert Latin-1 to UTF-8 (preserve ASCII bytes). This emulates a
+    // permissive Python decode(errors='ignore') by ensuring all bytes are
+    // valid UTF-8 sequences while keeping printable ASCII intact.
+    auto latin1_to_utf8 = []( const std::string& in ) {
+        std::string out;
+        out.reserve( in.size() );
+        for ( unsigned char c : in )
+        {
+            if ( c < 0x80 ) out.push_back( (char)c );
+            else {
+                out.push_back( static_cast< char >( 0xC0 | ( c >> 6 ) ) );
+                out.push_back( static_cast< char >( 0x80 | ( c & 0x3F ) ) );
+            }
+        }
+        return out;
+    };
+
+    std::string headerUtf8 = latin1_to_utf8( headerText );
+    // std::string headerUtf8 = headerText;  // assume ASCII-compatible
+
+    ANTLRInputStream input( headerUtf8 );
     logfile::SensorLogLexer lexer( &input );
     CommonTokenStream tokens( &lexer );
     logfile::SensorLogParser parser( &tokens );
@@ -307,7 +380,7 @@ int main( int argc, const char* argv[] )
         auto it = id2idx.find( id );
         if ( it == id2idx.end() )
         {
-            std::cerr << "Unknown ID: " << std::hex << id << std::dec << "\n";
+            // std::cerr << "Unknown ID: " << std::hex << id << std::dec << "\n";
             continue;
         }
         Device& dev = devices[it->second];
