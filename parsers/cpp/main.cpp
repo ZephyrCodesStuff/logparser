@@ -312,27 +312,7 @@ int main( int argc, const char* argv[] )
         return 4;
     }
 
-    // Convert Latin-1 to UTF-8 (preserve ASCII bytes). This emulates a
-    // permissive Python decode(errors='ignore') by ensuring all bytes are
-    // valid UTF-8 sequences while keeping printable ASCII intact.
-    auto latin1_to_utf8 = []( const std::string& in ) {
-        std::string out;
-        out.reserve( in.size() );
-        for ( unsigned char c : in )
-        {
-            if ( c < 0x80 ) out.push_back( (char)c );
-            else {
-                out.push_back( static_cast< char >( 0xC0 | ( c >> 6 ) ) );
-                out.push_back( static_cast< char >( 0x80 | ( c & 0x3F ) ) );
-            }
-        }
-        return out;
-    };
-
-    std::string headerUtf8 = latin1_to_utf8( headerText );
-    // std::string headerUtf8 = headerText;  // assume ASCII-compatible
-
-    ANTLRInputStream input( headerUtf8 );
+    ANTLRInputStream input( headerText );
     logfile::SensorLogLexer lexer( &input );
     CommonTokenStream tokens( &lexer );
     logfile::SensorLogParser parser( &tokens );
