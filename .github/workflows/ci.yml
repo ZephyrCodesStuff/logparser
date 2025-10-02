@@ -24,16 +24,16 @@ jobs:
         include:
           - name: windows-x86_64
             runs-on: windows-latest
-            cmake_args: '-A Win32 -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
-            build_cmd: 'cmake --build build --config Release --parallel'
+            cmake_args: '-A Win32 -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+            build_cmd: 'cmake --build build'
           - name: mac-arm64
             runs-on: macos-latest
-            cmake_args: '-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
-            build_cmd: 'cmake --build build -- -j$(sysctl -n hw.logicalcpu)'
+            cmake_args: '-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+            build_cmd: 'cmake --build build'
           - name: linux-x86_64
             runs-on: ubuntu-latest
-            cmake_args: '-DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
-            build_cmd: 'cmake --build build -- -j$(nproc)'
+            cmake_args: '-DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+            build_cmd: 'cmake --build build'
 
     steps:
       - name: Checkout repository (uses git)
@@ -71,7 +71,7 @@ jobs:
         run: |
           echo "Ensuring CMake policy flags are applied and building"
           cmake -S parsers/cpp -B build ${MATRIX_CMAKE_ARGS}
-          cmake ${MATRIX_CMAKE_ARGS} --build build -- -j$(sysctl -n hw.logicalcpu)
+          cmake ${MATRIX_CMAKE_ARGS} --build build
         env:
           MATRIX_CMAKE_ARGS: ${{ matrix.cmake_args }}
 
