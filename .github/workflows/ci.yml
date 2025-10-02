@@ -121,30 +121,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-matrix
     steps:
-      - name: Download windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build-windows-x86_64
-          path: artifacts/windows-x86_64
+      - name: Checkout (required for some actions)
+        uses: actions/checkout@v4
 
-      - name: Download mac artifact
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
-        with:
-          name: build-mac-arm64
-          path: artifacts/mac-arm64
-
-      - name: Download linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build-linux-x86_64
-          path: artifacts/linux-x86_64
 
       - name: Prepare release assets
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release
-          for d in artifacts/*; do
+          # artifacts are downloaded as directories named like build-<matrix.name>
+          for d in build-*; do
             [ -d "$d" ] || continue
             base=$(basename "$d")
             name=${base#build-}
@@ -153,19 +142,15 @@ jobs:
 
             bin=""
             if [[ "$os" == "windows" ]]; then
-              # prefer explicit logparser.exe
               bin=$(find "$d" -type f -iname 'logparser.exe' -print -quit || true)
             else
-              # prefer explicit logparser (no extension)
               bin=$(find "$d" -type f -name 'logparser' -print -quit || true)
             fi
 
-            # fallback: first executable file
             if [ -z "$bin" ]; then
               bin=$(find "$d" -type f -perm -u=x -print -quit || true)
             fi
 
-            # fallback: detect by file magic
             if [ -z "$bin" ]; then
               bin=$(find "$d" -type f -print0 | xargs -0 file 2>/dev/null | grep -E 'ELF|Mach-O|PE32' | cut -d: -f1 | head -n1 || true)
             fi
@@ -187,27 +172,12 @@ jobs:
           SHORT_SHA=${GITHUB_SHA::7}
           echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Create Release and upload assets
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: release-${{ steps.set_short_sha.outputs.short_sha }}
-          release_name: "🔖 ${{ steps.set_short_sha.outputs.short_sha }} | Release"
-          body: "Automated release from CI"
-          draft: false
-          prerelease: false
-
-      - name: Upload release assets
-        shell: bash
+          name: "🔖 ${{ steps.set_short_sha.outputs.short_sha }} | Release"
+          files: |
+            release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          UPLOAD_URL="${{ steps.create_release.outputs.upload_url }}"
-          UPLOAD_URL="${UPLOAD_URL%%\{*}"
-          for f in release/*; do
-            [ -f "$f" ] || continue
-            name=$(basename "$f")
-            echo "Uploading $name"
-            curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" -H "Content-Type: application/octet-stream" --data-binary @"$f" "$UPLOAD_URL?name=$name"
-          done
