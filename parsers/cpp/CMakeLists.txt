@@ -93,6 +93,15 @@ endif()
 # Add your executable
 add_executable(logparser main.cpp)
 
+# Add source files
+target_sources(logparser PRIVATE
+    parallelism.hpp
+    parallelism.cpp
+    types.hpp
+    types.cpp
+    utils.hpp
+)
+
 # Modern C++ settings
 set_target_properties(logparser PROPERTIES
     CXX_STANDARD 17
