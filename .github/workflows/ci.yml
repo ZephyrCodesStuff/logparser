@@ -24,7 +24,7 @@ jobs:
         include:
           - name: windows-x86_64
             runs-on: windows-latest
-            cmake_args: '-G "Visual Studio 17 2022" -A Win32 -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+            cmake_args: '-A Win32 -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
             build_cmd: 'cmake --build build --config Release --parallel'
           - name: mac-arm64
             runs-on: macos-latest
@@ -65,18 +65,35 @@ jobs:
       - name: Build (mac-arm64)
         if: matrix.name == 'mac-arm64'
         shell: bash
-        run: ${{ matrix.build_cmd }}
+        run: |
+          echo "Ensuring CMake policy flags are applied and building"
+          cmake -S parsers/cpp -B build ${MATRIX_CMAKE_ARGS}
+          cmake --build build -- -j$(sysctl -n hw.logicalcpu)
+        env:
+          MATRIX_CMAKE_ARGS: ${{ matrix.cmake_args }}
 
       - name: Build (linux-x86_64)
         if: matrix.name == 'linux-x86_64'
         shell: bash
         run: ${{ matrix.build_cmd }}
 
-      - name: List build output
-        if: always()
+      - name: List build output (Linux/macOS)
+        if: matrix.name != 'windows-x86_64'
+        shell: bash
         run: |
-          echo "Build tree contents:" 
+          echo "Build tree contents:"
           ls -la build || true
+
+      - name: List build output (Windows)
+        if: matrix.name == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          Write-Host "Build tree contents:"
+          if (Test-Path -Path build) {
+            Get-ChildItem -Path build -Recurse | ForEach-Object { Write-Host $_.FullName }
+          } else {
+            Write-Host "No build directory"
+          }
 
       - name: Upload build artifacts (optional)
         if: always()
@@ -115,22 +132,37 @@ jobs:
           mkdir -p release
           for d in artifacts/*; do
             [ -d "$d" ] || continue
-            # try to find an executable
-            bin=$(find "$d" -type f -perm -u=x -print -quit || true)
+            base=$(basename "$d")
+            name=${base#build-}
+            os=$(echo "$name" | cut -d'-' -f1)
+            arch=$(echo "$name" | cut -d'-' -f2-)
+
+            bin=""
+            if [[ "$os" == "windows" ]]; then
+              # prefer explicit logparser.exe
+              bin=$(find "$d" -type f -iname 'logparser.exe' -print -quit || true)
+            else
+              # prefer explicit logparser (no extension)
+              bin=$(find "$d" -type f -name 'logparser' -print -quit || true)
+            fi
+
+            # fallback: first executable file
+            if [ -z "$bin" ]; then
+              bin=$(find "$d" -type f -perm -u=x -print -quit || true)
+            fi
+
+            # fallback: detect by file magic
             if [ -z "$bin" ]; then
               bin=$(find "$d" -type f -print0 | xargs -0 file 2>/dev/null | grep -E 'ELF|Mach-O|PE32' | cut -d: -f1 | head -n1 || true)
             fi
+
             if [ -n "$bin" ]; then
-              base=$(basename "$d")
-              name=${base#build-}
-              os=$(echo "$name" | cut -d'-' -f1)
-              arch=$(echo "$name" | cut -d'-' -f2-)
               dest=release/logparser-${os}-${arch}
               if [[ "$os" == "windows" ]]; then dest=${dest}.exe; fi
               cp "$bin" "$dest"
               echo "Copied $bin -> $dest"
             else
-              echo "No binary found in $d"
+              echo "No logparser binary found in $d"
             fi
           done
 

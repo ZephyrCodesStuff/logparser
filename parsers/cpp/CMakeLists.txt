@@ -91,10 +91,10 @@ if(NOT TARGET ANTLR4::Runtime AND NOT TARGET ANTLR::Runtime)
 endif()
 
 # Add your executable
-add_executable(main main.cpp)
+add_executable(logparser main.cpp)
 
 # Modern C++ settings
-set_target_properties(main PROPERTIES
+set_target_properties(logparser PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
@@ -102,22 +102,22 @@ set_target_properties(main PROPERTIES
 
 # Link to the ANTLR runtime. Support several possible Find module conventions.
 if(TARGET ANTLR4::Runtime)
-    target_link_libraries(main PRIVATE ANTLR4::Runtime)
+    target_link_libraries(logparser PRIVATE ANTLR4::Runtime)
 elseif(TARGET ANTLR::Runtime)
-    target_link_libraries(main PRIVATE ANTLR::Runtime)
+    target_link_libraries(logparser PRIVATE ANTLR::Runtime)
 elseif(DEFINED ANTLR_RUNTIME_LIBRARY)
-    target_link_libraries(main PRIVATE ${ANTLR_RUNTIME_LIBRARY})
+    target_link_libraries(logparser PRIVATE ${ANTLR_RUNTIME_LIBRARY})
 elseif(DEFINED ANTLR_LIBRARY)
-    target_link_libraries(main PRIVATE ${ANTLR_LIBRARY})
+    target_link_libraries(logparser PRIVATE ${ANTLR_LIBRARY})
 else()
     message(FATAL_ERROR "ANTLR runtime target or variables not found. Verify FindANTLR.cmake")
 endif()
 
 # Add include directories if the find module provided them
 if(DEFINED ANTLR_RUNTIME_INCLUDE_DIR)
-    target_include_directories(main PRIVATE ${ANTLR_RUNTIME_INCLUDE_DIR})
+    target_include_directories(logparser PRIVATE ${ANTLR_RUNTIME_INCLUDE_DIR})
 elseif(DEFINED ANTLR_INCLUDE_DIRS)
-    target_include_directories(main PRIVATE ${ANTLR_INCLUDE_DIRS})
+    target_include_directories(logparser PRIVATE ${ANTLR_INCLUDE_DIRS})
 endif()
 
 # Configure ANTLR-generated sources from `./gen`
@@ -134,18 +134,18 @@ if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/gen/SensorLog.g4")
             DEPENDS ${ANTLR_LogfileParser_CXX_OUTPUTS}
         )
 
-        add_dependencies(main GenerateLogfileParser)
+        add_dependencies(logparser GenerateLogfileParser)
 
-        target_sources(main PRIVATE ${ANTLR_LogfileParser_CXX_OUTPUTS})
+        target_sources(logparser PRIVATE ${ANTLR_LogfileParser_CXX_OUTPUTS})
 
-        target_include_directories(main PRIVATE
+        target_include_directories(logparser PRIVATE
             ${CMAKE_CURRENT_BINARY_DIR}/gen
         )
 
         if(DEFINED ANTLR_RUNTIME_INCLUDE_DIR)
-            target_include_directories(main PRIVATE ${ANTLR_RUNTIME_INCLUDE_DIR})
+            target_include_directories(logparser PRIVATE ${ANTLR_RUNTIME_INCLUDE_DIR})
         elseif(DEFINED ANTLR_INCLUDE_DIRS)
-            target_include_directories(main PRIVATE ${ANTLR_INCLUDE_DIRS})
+            target_include_directories(logparser PRIVATE ${ANTLR_INCLUDE_DIRS})
         endif()
     else()
         message(FATAL_ERROR "ANTLR_TARGET macro not found. Ensure ANTLR CMake helpers are discoverable.\nEither install ANTLR CMake package and set ANTLR_DIR/CMAKE_PREFIX_PATH, or allow CMake to fetch antlr4 (check FetchContent and network).")
