@@ -7,6 +7,8 @@
 #include "types.hpp"
 #include "utils.hpp"
 
+#define MIN_LEN 5  // Minimum length of a valid section
+
 ParsedSection parse_section(
     const uint8_t* data, size_t length,
     const std::unordered_map< uint32_t, size_t >& id2idx,
@@ -15,22 +17,36 @@ ParsedSection parse_section(
     ParsedSection result{ 0, {}, false };
 
     // each section must be at least 5 bytes (4-byte id + 1-byte checksum)
-    if ( length < 5 ) return result;
+    if ( length < MIN_LEN )
+    {
+        return result;
+    }
 
     // checksum is last byte (XOR of all previous bytes)
-    uint8_t cs = 0;
+    uint8_t crc = 0;
     for ( size_t i = 0; i + 1 < length; ++i )
-        cs ^= data[i];
-    if ( cs != data[length - 1] ) return result;
+    {
+        crc ^= data[i];
+    }
+    if ( crc != data[length - 1] )
+    {
+        return result;
+    }
 
-    uint32_t id = read_le< uint32_t >( data );
-    auto it = id2idx.find( id );
-    if ( it == id2idx.end() ) return result;
+    auto device_id = read_le< uint32_t >( data );
+    auto device = id2idx.find( device_id );
+    if ( device == id2idx.end() )
+    {
+        return result;
+    }
 
-    result.device_id = id;
-    const Device& dev = devices[it->second];
+    result.device_id = device_id;
+    const Device& dev = devices[device->second];
     size_t entrySize = calc_entry_size( dev );
-    if ( entrySize == 0 ) return result;
+    if ( entrySize == 0 )
+    {
+        return result;
+    }
 
     size_t payload_len = length - 1 - 4;  // remove checksum and id
     size_t num_entries = payload_len / entrySize;
@@ -38,12 +54,12 @@ ParsedSection parse_section(
 
     result.entries.reserve( num_entries );
 
-    for ( size_t e = 0; e < num_entries; ++e )
+    for ( size_t entry_idx = 0; entry_idx < num_entries; ++entry_idx )
     {
         std::vector< std::string > entry;
         entry.reserve( dev.fields.size() );
 
-        const uint8_t* p = cursor + e * entrySize;
+        const uint8_t* p = cursor + entry_idx * entrySize;
         for ( size_t f = 0; f < dev.fields.size(); ++f )
         {
             const auto& ftype = dev.fields[f].type;
@@ -64,7 +80,10 @@ void process_sections_parallel(
     std::vector< Device >& devices,
     const std::unordered_map< uint32_t, size_t >& id2idx, unsigned num_threads )
 {
-    if ( num_threads == 0 ) num_threads = std::thread::hardware_concurrency();
+    if ( num_threads == 0 )
+    {
+        num_threads = std::thread::hardware_concurrency();
+    }
 
     std::atomic< size_t > corrupt_count{ 0 };
     std::atomic< size_t > next_section{ 1 };  // Skip header section
@@ -73,17 +92,22 @@ void process_sections_parallel(
     std::vector< ThreadResults > threadResults;
     threadResults.reserve( num_threads );
     for ( unsigned i = 0; i < num_threads; ++i )
+    {
         threadResults.emplace_back( devices.size() );
+    }
 
     auto worker = [&]( unsigned thread_id ) {
-        ThreadResults& myResults = threadResults[thread_id];
+        ThreadResults& results = threadResults[thread_id];
 
         while ( true )
         {
-            size_t si = next_section.fetch_add( 1 );
-            if ( si >= sections.size() ) break;
+            size_t section_idx = next_section.fetch_add( 1 );
+            if ( section_idx >= sections.size() )
+            {
+                break;
+            }
 
-            const auto& sec = sections[si];
+            const auto& sec = sections[section_idx];
             const uint8_t* data = fileBytes.data() + sec.offset;
 
             ParsedSection parsed =
@@ -96,18 +120,18 @@ void process_sections_parallel(
             }
 
             // Add to thread-local buffer (no locking!) with sequence key
-            auto it = id2idx.find( parsed.device_id );
-            if ( it != id2idx.end() )
+            auto device = id2idx.find( parsed.device_id );
+            if ( device != id2idx.end() )
             {
-                size_t device_idx = it->second;
+                size_t device_idx = device->second;
                 // Each entry keeps its index within the section; combine with section index
-                uint64_t section_idx = static_cast< uint64_t >( si );
+                auto section_idx_u64 = static_cast< uint64_t >( section_idx );
                 for ( size_t entry_idx = 0; entry_idx < parsed.entries.size();
                       ++entry_idx )
                 {
-                    uint64_t seq_key = ( section_idx << 32 ) |
+                    uint64_t seq_key = ( section_idx_u64 << 32 ) |
                                        static_cast< uint64_t >( entry_idx );
-                    myResults.add_entry( device_idx, seq_key,
+                    results.add_entry( device_idx, seq_key,
                                          parsed.entries[entry_idx] );
                 }
             }
@@ -118,11 +142,15 @@ void process_sections_parallel(
     std::vector< std::thread > threads;
     threads.reserve( num_threads );
     for ( unsigned i = 0; i < num_threads; ++i )
+    {
         threads.emplace_back( worker, i );
+    }
 
     // Wait for completion
     for ( auto& t : threads )
+    {
         t.join();
+    }
     // Merge results (single-threaded, no contention) preserving sequence order
     for ( size_t dev_idx = 0; dev_idx < devices.size(); ++dev_idx )
     {
@@ -134,7 +162,9 @@ void process_sections_parallel(
             const auto& buf = threadResult.deviceBuffers[dev_idx];
             allEntries.reserve( allEntries.size() + buf.size() );
             for ( const auto& p : buf )
+            {
                 allEntries.emplace_back( p.first, &p.second );
+            }
         }
 
         // Sort by seq_key to restore global order
@@ -148,7 +178,9 @@ void process_sections_parallel(
             const auto& entry = *p.second;
             for ( size_t f = 0;
                   f < entry.size() && f < devices[dev_idx].fields.size(); ++f )
+            {
                 devices[dev_idx].fields[f].data.push_back( entry[f] );
+            }
         }
     }
 

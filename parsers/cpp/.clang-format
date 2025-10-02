@@ -13,7 +13,7 @@ AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: Always
 AllowShortCaseLabelsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: Inline
-AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortIfStatementsOnASingleLine: Never
 AllowShortLambdasOnASingleLine: Inline
 AllowShortLoopsOnASingleLine: false
 AlwaysBreakAfterReturnType: None
@@ -53,6 +53,7 @@ IndentCaseLabels: true
 IndentPPDirectives: BeforeHash
 IndentWidth: 4
 InsertNewlineAtEOF: true
+InsertBraces: true
 KeepEmptyLinesAtTheStartOfBlocks: true
 MaxEmptyLinesToKeep: 1
 NamespaceIndentation: All
@@ -60,7 +61,7 @@ ObjCSpaceAfterProperty: false
 ObjCSpaceBeforeProtocolList: true
 PointerAlignment: Left
 ReflowComments: false
-RemoveBracesLLVM: true
+RemoveBracesLLVM: false
 RemoveParentheses: MultipleParentheses
 # SeparateDefinitionBlocks: Always   # Only support since clang-format 14
 SpaceAfterCStyleCast: false
