@@ -44,7 +44,10 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "CMake args: $env:MATRIX_CMAKE_ARGS"
-          cmake -S parsers/cpp -B build $env:MATRIX_CMAKE_ARGS
+          # split the space-separated args into an array so PowerShell passes them as separate arguments
+          $parts = @()
+          if ($env:MATRIX_CMAKE_ARGS) { $parts = $env:MATRIX_CMAKE_ARGS -split ' ' }
+          & cmake -S parsers/cpp -B build -G "Visual Studio 17 2022" @parts
         env:
           MATRIX_CMAKE_ARGS: ${{ matrix.cmake_args }}
 
@@ -68,7 +71,7 @@ jobs:
         run: |
           echo "Ensuring CMake policy flags are applied and building"
           cmake -S parsers/cpp -B build ${MATRIX_CMAKE_ARGS}
-          cmake --build build -- -j$(sysctl -n hw.logicalcpu)
+          cmake ${MATRIX_CMAKE_ARGS} --build build -- -j$(sysctl -n hw.logicalcpu)
         env:
           MATRIX_CMAKE_ARGS: ${{ matrix.cmake_args }}
 
