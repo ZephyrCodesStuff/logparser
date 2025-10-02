@@ -22,24 +22,16 @@ From the repository root:
 cmake -S parsers/cpp -B build -G Ninja
 
 # Build
-cmake --build build -- -j
+cmake --build build --parallel
 
 # Run the parser
-./build/main samples/example_header.log
+./build/main samples/example.log
 ```
 
 Notes
 - Network access is required at configure time the first time CMake fetches
 	the ANTLR sources. Subsequent config/builds will reuse the downloaded copy
 	in the build directory.
-- If you need offline builds or reproducible environments, pin the ANTLR
-	tag/commit in `parsers/cpp/CMakeLists.txt` (the default is v4.13.2).
-- Manual Make/Ninja instructions and the repository-local `antlr4` layout have
-	been removed. Use the CMake workflow above.
 
 Other parsers
 - Python parser: see `parsers/python` and its `run.sh` script.
-
-If you want me to add an optional command to pre-populate a local `antlr4`
-clone for offline use, I can add a small script or Make target that performs
-that step.
