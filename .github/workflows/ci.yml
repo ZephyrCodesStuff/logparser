@@ -42,17 +42,27 @@ jobs:
       - name: Checkout repository (uses git)
         uses: actions/checkout@v4
 
-      - name: Configure with CMake (Windows)
+      - name: Configure with CMake (Windows, use preinstalled GCC)
         if: matrix.name == 'windows-x86_64'
         shell: pwsh
         run: |
-          Write-Host "Environment CMake vars:"
-          Get-ChildItem env:CMAKE_* | ForEach-Object { Write-Host "$($_.Name)=$($_.Value)" }
-          # build -D arguments from environment variables starting with CMAKE_
-          $defs = @()
-          Get-ChildItem env:CMAKE_* | ForEach-Object { $defs += "-D$($_.Name)=$($_.Value)" }
-          # invoke cmake with generator and the constructed -D defs
-          & cmake -S parsers/cpp -B build @defs
+          Write-Host "Configuring with preinstalled GCC and Ninja on Windows"
+          # build argument array: basic args
+          $args = @('-S', 'parsers/cpp', '-B', 'build', '-G', 'Ninja')
+          # append environment CMAKE_* defs
+          Get-ChildItem env:CMAKE_* | ForEach-Object { $args += "-D$($_.Name)=$($_.Value)" }
+          # set compilers explicitly to the preinstalled gcc/g++
+          $args += '-DCMAKE_C_COMPILER=gcc'
+          $args += '-DCMAKE_CXX_COMPILER=g++'
+          Write-Host "Running: cmake $($args -join ' ')"
+          & cmake @args
+
+      - name: Build (Windows using preinstalled GCC/Ninja)
+        if: matrix.name == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          Write-Host "Building with Ninja using preinstalled GCC"
+          cmake --build build --parallel
 
       - name: Configure with CMake (macOS/Linux)
         if: matrix.name != 'windows-x86_64'
@@ -68,15 +78,18 @@ jobs:
           eval cmake -S parsers/cpp -B build ${CMDEF_ARGS}
         env: {}
 
-      - name: Build (Windows)
-        if: matrix.name == 'windows-x86_64'
-        shell: pwsh
-        run: "cmake --build build --config Release -- /m"
-
-      - name: Build (macOS/Linux)
-        if: matrix.name != 'windows-x86_64'
+      - name: Build (mac-arm64)
+        if: matrix.name == 'mac-arm64'
         shell: bash
-        run: "cmake --build build"
+        run: |
+          echo "Ensuring CMake policy flags are applied and building"
+          cmake --build build -- -j$(sysctl -n hw.logicalcpu)
+
+      - name: Build (linux-x86_64)
+        if: matrix.name == 'linux-x86_64'
+        shell: bash
+        run: |
+          cmake --build build -- -j$(nproc)
 
       - name: List build output (Linux/macOS)
         if: matrix.name != 'windows-x86_64'
