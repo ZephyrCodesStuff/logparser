@@ -9,3 +9,7 @@ __pycache__/
 # CMake files
 .cache
 build/
+
+# Profiling
+parallel.trace
+output/

@@ -94,13 +94,21 @@ void process_sections_parallel(
                 continue;
             }
 
-            // Add to thread-local buffer (no locking!)
+            // Add to thread-local buffer (no locking!) with sequence key
             auto it = id2idx.find( parsed.device_id );
             if ( it != id2idx.end() )
             {
                 size_t device_idx = it->second;
-                for ( const auto& entry : parsed.entries )
-                    myResults.add_entry( device_idx, entry );
+                // Each entry keeps its index within the section; combine with section index
+                uint64_t section_idx = static_cast< uint64_t >( si );
+                for ( size_t entry_idx = 0; entry_idx < parsed.entries.size();
+                      ++entry_idx )
+                {
+                    uint64_t seq_key = ( section_idx << 32 ) |
+                                       static_cast< uint64_t >( entry_idx );
+                    myResults.add_entry( device_idx, seq_key,
+                                         parsed.entries[entry_idx] );
+                }
             }
         }
     };
@@ -114,21 +122,39 @@ void process_sections_parallel(
     // Wait for completion
     for ( auto& t : threads )
         t.join();
-
-    // Merge results (single-threaded, no contention)
-    for ( const auto& threadResult : threadResults )
+    // Merge results (single-threaded, no contention) preserving sequence order
+    for ( size_t dev_idx = 0; dev_idx < devices.size(); ++dev_idx )
     {
-        for ( size_t dev_idx = 0; dev_idx < devices.size(); ++dev_idx )
+        // Collect all (seq_key, entry) pairs from all threads
+        std::vector< std::pair< uint64_t, const std::vector< std::string >* > >
+            allEntries;
+        for ( const auto& threadResult : threadResults )
         {
-            const auto& entries = threadResult.deviceBuffers[dev_idx];
-            for ( const auto& entry : entries )
-                for ( size_t f = 0;
-                      f < entry.size() && f < devices[dev_idx].fields.size();
-                      ++f )
-                    devices[dev_idx].fields[f].data.push_back( entry[f] );
+            const auto& buf = threadResult.deviceBuffers[dev_idx];
+            allEntries.reserve( allEntries.size() + buf.size() );
+            for ( const auto& p : buf )
+                allEntries.emplace_back( p.first, &p.second );
+        }
+
+        // Sort by seq_key to restore global order
+        std::sort(
+            allEntries.begin(), allEntries.end(),
+            []( const auto& a, const auto& b ) { return a.first < b.first; } );
+
+        // Append in order
+        for ( const auto& p : allEntries )
+        {
+            const auto& entry = *p.second;
+            for ( size_t f = 0;
+                  f < entry.size() && f < devices[dev_idx].fields.size(); ++f )
+                devices[dev_idx].fields[f].data.push_back( entry[f] );
         }
     }
 
-    std::cout << "Parsing done. Corrupt sections: " << corrupt_count.load()
-              << "\n";
+    // Optional: report corrupt sections
+    if ( corrupt_count.load() > 0 )
+    {
+        std::cout << "Parsing done. Corrupt sections: " << corrupt_count.load()
+                  << "\n";
+    }
 }
