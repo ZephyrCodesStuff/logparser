@@ -13,3 +13,13 @@ build/
 # Profiling
 parallel.trace
 output/
+
+# Vscode config
+.vscode/
+
+# Binary files
+*.bin
+*.BIN
+
+# Output files
+*.csv

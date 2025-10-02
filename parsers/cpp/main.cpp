@@ -18,6 +18,9 @@
 using namespace antlr4;
 namespace fs = std::filesystem;
 
+#define TEMP_PATH ".JOIN_TEMP"
+#define KEEP_JOINED_FILES 0
+
 // Build Content map from the parsed ANTLR FileContext
 std::vector< Device > build_content_from_ast(
     logfile::SensorLogParser::FileContext* fileCtx )
@@ -122,16 +125,65 @@ void write_csv_for_device( const Device& dev, const fs::path& outdir )
     std::cout << "Wrote " << p << " (" << rows << " rows)\n";
 }
 
-int main( int argc, const char* argv[] )
-{
-    if ( argc < 2 )
-    {
-        std::cerr << "Usage: " << argv[0] << " <file> [outdir]" << std::endl;
-        return 1;
+bool has_header(const std::string &path){
+    std::ifstream file(path, std::ios::in);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file: " << path << "\n";
+        return false;
     }
 
-    fs::path infile = argv[1];
-    fs::path outdir = ( argc >= 3 ) ? fs::path( argv[2] ) : fs::current_path();
+    char c;
+    if (file.get(c)) {
+        return c == '$';
+    }
+
+    return false;
+}
+
+bool join_files(std::vector<std::string> files, const std::string &outputPath){
+    std::cout<<"Joining File "<<outputPath<<std::endl;
+    std::ofstream out(outputPath, std::ios::binary);
+    if (!out.is_open()) {
+        std::cerr << "Failed to open output file: " << outputPath << "\n";
+        return false;
+    }
+
+    for (const auto& file : files) {
+        std::ifstream in(file, std::ios::binary);
+        if (!in.is_open()) {
+            std::cerr << "Failed to open input file: " << file << "\n";
+            return false;
+        }
+
+        out << in.rdbuf();
+    }
+
+    return true;
+}
+
+bool join_files_batch(std::vector<std::string> files, const std::string &outputFolderPath){
+    sort(files.begin(), files.end());
+
+    std::vector<std::string> fileList;
+    int fileIndex = 0;
+    for(std::string x : files){
+        if(has_header(x)){
+            if(fileList.size() > 0){
+                join_files(fileList, (fs::path(outputFolderPath) / fs::path("outputBIN" + std::to_string(fileIndex++) +  ".bin")).string());
+                fileList.clear();
+            }
+        }
+
+        fileList.push_back(x);
+    }
+
+    if(fileList.size() > 0){
+        join_files(fileList, (fs::path(outputFolderPath) / fs::path("outputBIN" + std::to_string(fileIndex) +  ".bin")).string());
+    }
+    return true;
+}
+
+bool parse_file_into_csv(fs::path infile, fs::path outdir) {
     if ( !fs::exists( infile ) )
     {
         std::cerr << "File not found: " << infile << std::endl;
@@ -233,6 +285,111 @@ int main( int argc, const char* argv[] )
     // write CSV per device
     for ( const auto& dev : devices )
         write_csv_for_device( dev, outdir );
+    
+    return true;
+}
+
+int main( int argc, const char* argv[] )
+{
+    if ( argc < 3 )
+    {
+        std::cerr << "Usage: " << argv[0] << " <inputPath> [outputPath] *flags" << std::endl;
+        return 1;
+    }
+    std::string inputPath = argv[1], outputPath = argv[2];
+
+    bool joinMode = false, multiMode = false;
+    if(argc > 3){
+        for(int i = 3; i < argc; i++){
+            if(argv[i][0] != '-' || strlen(argv[i]) < 2){
+                std::cerr << "Usage: " << argv[0] << " <inputPath> [outputPath] *flags" << std::endl;
+                return 1;
+            }
+
+            switch(argv[i][1]){
+                case 'j':
+                    joinMode = true;
+                break;
+                case 'm':
+                    multiMode = true;
+                break;
+                default:
+                    std::cerr << "Unknown Flag "<< argv[i][1] << std::endl;
+                    return 1;
+            }
+        }
+    }
+
+    if(joinMode){
+        multiMode = true;
+
+        if (!fs::exists( inputPath ) || !fs::is_directory( inputPath ))
+        {
+            std::cerr << "Join Folder not found: " << inputPath << std::endl;
+            return 2;
+        }
+
+        if (fs::exists( TEMP_PATH ) && fs::is_directory( TEMP_PATH ))
+        {
+            fs::remove_all(TEMP_PATH);
+        }
+
+        fs::create_directory(TEMP_PATH);
+        
+        std::vector<std::string> files;
+
+        for (const auto& entry : std::filesystem::directory_iterator(inputPath)) {
+            if (std::filesystem::is_regular_file(entry.status())) {
+                files.push_back(entry.path().string());
+            }
+        }
+
+        for(fs::path s : files){
+            if(s.extension() != ".bin" && s.extension() != ".BIN"){
+                std::cerr<<"Invalid Binary File : "<<s.string()<<std::endl;
+                return 2;
+            }
+        }
+
+        join_files_batch(files, TEMP_PATH);
+
+        inputPath = TEMP_PATH;
+    }
+
+    if(multiMode){
+        if (!fs::exists( inputPath ) || !fs::is_directory( inputPath ))
+        {
+            std::cerr << "Input Folder not found: " << inputPath << std::endl;
+            return 2;
+        }
+
+        if (!fs::exists( outputPath ))
+        {
+            fs::create_directory(outputPath);
+        }
+
+        std::vector<std::string> files;
+
+        for (const auto& entry : std::filesystem::directory_iterator(inputPath)) {
+            if (std::filesystem::is_regular_file(entry.status())) {
+                files.push_back(entry.path().string());
+            }
+        }
+
+        for(fs::path s : files){
+            if(s.extension() != ".bin" && s.extension() != ".BIN"){
+                std::cerr<<"Invalid Binary File : "<<s.string()<<std::endl;
+                return 2;
+            }
+        }
+
+        unsigned int fileCount = 0;
+        for(std::string s : files){
+            parse_file_into_csv(fs::path(s), fs::path(outputPath) / fs::path("outputBIN" + std::to_string(fileCount++)));
+        }
+    }else{
+        parse_file_into_csv(fs::path(inputPath), fs::path(outputPath));
+    }
 
     return 0;
 }
