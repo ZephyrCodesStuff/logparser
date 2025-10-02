@@ -1,0 +1,167 @@
+name: CI - cross-build
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      public_repo:
+        description: 'Optional public repository URL to clone (git). Leave empty to skip.'
+        required: false
+        default: ''
+
+jobs:
+  build-matrix:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            runs-on: windows-latest
+            cmake_args: '-G "Visual Studio 17 2022" -A Win32 -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+            build_cmd: 'cmake --build build --config Release --parallel'
+          - name: mac-arm64
+            runs-on: macos-latest
+            cmake_args: '-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+            build_cmd: 'cmake --build build -- -j$(sysctl -n hw.logicalcpu)'
+          - name: linux-x86_64
+            runs-on: ubuntu-latest
+            cmake_args: '-DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+            build_cmd: 'cmake --build build -- -j$(nproc)'
+
+    steps:
+      - name: Checkout repository (uses git)
+        uses: actions/checkout@v4
+
+      - name: Configure with CMake (Windows)
+        if: matrix.name == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          Write-Host "CMake args: $env:MATRIX_CMAKE_ARGS"
+          cmake -S parsers/cpp -B build $env:MATRIX_CMAKE_ARGS
+        env:
+          MATRIX_CMAKE_ARGS: ${{ matrix.cmake_args }}
+
+      - name: Configure with CMake (macOS/Linux)
+        if: matrix.name != 'windows-x86_64'
+        shell: bash
+        run: |
+          echo "CMake args: ${MATRIX_CMAKE_ARGS}"
+          cmake -S parsers/cpp -B build ${MATRIX_CMAKE_ARGS}
+        env:
+          MATRIX_CMAKE_ARGS: ${{ matrix.cmake_args }}
+
+      - name: Build (Windows)
+        if: matrix.name == 'windows-x86_64'
+        shell: pwsh
+        run: ${{ matrix.build_cmd }}
+
+      - name: Build (mac-arm64)
+        if: matrix.name == 'mac-arm64'
+        shell: bash
+        run: ${{ matrix.build_cmd }}
+
+      - name: Build (linux-x86_64)
+        if: matrix.name == 'linux-x86_64'
+        shell: bash
+        run: ${{ matrix.build_cmd }}
+
+      - name: List build output
+        if: always()
+        run: |
+          echo "Build tree contents:" 
+          ls -la build || true
+
+      - name: Upload build artifacts (optional)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.name }}
+          path: build
+
+  create-release:
+    name: Create Release and upload assets
+    runs-on: ubuntu-latest
+    needs: build-matrix
+    steps:
+      - name: Download windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-windows-x86_64
+          path: artifacts/windows-x86_64
+
+      - name: Download mac artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-mac-arm64
+          path: artifacts/mac-arm64
+
+      - name: Download linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-linux-x86_64
+          path: artifacts/linux-x86_64
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          for d in artifacts/*; do
+            [ -d "$d" ] || continue
+            # try to find an executable
+            bin=$(find "$d" -type f -perm -u=x -print -quit || true)
+            if [ -z "$bin" ]; then
+              bin=$(find "$d" -type f -print0 | xargs -0 file 2>/dev/null | grep -E 'ELF|Mach-O|PE32' | cut -d: -f1 | head -n1 || true)
+            fi
+            if [ -n "$bin" ]; then
+              base=$(basename "$d")
+              name=${base#build-}
+              os=$(echo "$name" | cut -d'-' -f1)
+              arch=$(echo "$name" | cut -d'-' -f2-)
+              dest=release/logparser-${os}-${arch}
+              if [[ "$os" == "windows" ]]; then dest=${dest}.exe; fi
+              cp "$bin" "$dest"
+              echo "Copied $bin -> $dest"
+            else
+              echo "No binary found in $d"
+            fi
+          done
+
+      - id: set_short_sha
+        name: Set SHORT_SHA
+        shell: bash
+        run: |
+          SHORT_SHA=${GITHUB_SHA::7}
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: release-${{ steps.set_short_sha.outputs.short_sha }}
+          release_name: "🔖 ${{ steps.set_short_sha.outputs.short_sha }} | Release"
+          body: "Automated release from CI"
+          draft: false
+          prerelease: false
+
+      - name: Upload release assets
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          UPLOAD_URL="${{ steps.create_release.outputs.upload_url }}"
+          UPLOAD_URL="${UPLOAD_URL%%\{*}"
+          for f in release/*; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f")
+            echo "Uploading $name"
+            curl -s -X POST -H "Authorization: Bearer $GITHUB_TOKEN" -H "Content-Type: application/octet-stream" --data-binary @"$f" "$UPLOAD_URL?name=$name"
+          done
