@@ -4,15 +4,15 @@ permissions:
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
     inputs:
       public_repo:
-        description: 'Optional public repository URL to clone (git). Leave empty to skip.'
+        description: "Optional public repository URL to clone (git). Leave empty to skip."
         required: false
-        default: ''
+        default: ""
 
 jobs:
   build-matrix:
@@ -156,10 +156,31 @@ jobs:
             fi
 
             if [ -n "$bin" ]; then
-              dest=release/logparser-${os}-${arch}
-              if [[ "$os" == "windows" ]]; then dest=${dest}.exe; fi
-              cp "$bin" "$dest"
-              echo "Copied $bin -> $dest"
+              if [[ "$os" == "windows" ]]; then
+                # Attempt to locate libantlr4-runtime.dll inside the artifact
+                dllpath="$d/antlr4_runtime/src/antlr4_runtime/runtime/Cpp/dist/libantlr4-runtime.dll"
+                if [ ! -f "$dllpath" ]; then
+                  # fallback: search within the artifact for a file named libantlr4-runtime.dll
+                  dllpath=$(find "$d" -type f -iname 'libantlr4-runtime.dll' -print -quit || true)
+                fi
+
+                if [ -n "$dllpath" ]; then
+                  zipdest=release/logparser-${os}-${arch}.zip
+                  rm -f "$zipdest"
+                  # include the exe and the dll
+                  zip -j "$zipdest" "$bin" "$dllpath"
+                  echo "Created $zipdest containing $bin and $dllpath"
+                else
+                  # no dll found, fall back to copying the exe
+                  dest=release/logparser-${os}-${arch}.exe
+                  cp "$bin" "$dest"
+                  echo "Copied $bin -> $dest (no DLL found)"
+                fi
+              else
+                dest=release/logparser-${os}-${arch}
+                cp "$bin" "$dest"
+                echo "Copied $bin -> $dest"
+              fi
             else
               echo "No logparser binary found in $d"
             fi
