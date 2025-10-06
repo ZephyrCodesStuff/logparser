@@ -35,3 +35,36 @@ Notes
 
 Other parsers
 - Python parser: see `parsers/python` and its `run.sh` script.
+
+## Usage 
+In order to use the parser, you can either compile it yourself using the compilation guide, or you can download the release version for your OS. 
+
+**Windows version requires libantlr4-runtime.dll in the same folder as logparser.exe to work!**
+
+You can specify the operation mode using the available command-line flags:
+
+```bash
+.\logparser.exe [-j] [-p] [-jp] <inputPath> <outputPath>
+```
+The program supports the following options:
+
+-   **`-j`** Join split files into merged `.bin` batches and write them to the specified `<outputPath>`.
+	- `<inputPath>` must be a directory to join files 
+    
+-   **`-p`** Parse files into CSV format.
+    
+    -   If `<inputPath>` is a directory, all files inside will be parsed individually.
+        
+    -   If `<inputPath>` is a single file, only that file will be parsed.
+        
+-   **`-jp`**  Join and then parse the merged batches in one step (similar to using **`-j -p`**).
+### Example Usage : 
+```bash
+.\logparser.exe -jp logs output
+```
+Where logs is a folder containing all the binary files and output is an empty folder.
+Keep in mind that you need to use the path of the logparser, so either your terminal should be in the same folder or you should paste the path like :
+```bash
+C:\Users\User\Downloads\logparser.exe -jp logs output
+```
+
