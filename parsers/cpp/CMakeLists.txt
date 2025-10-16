@@ -45,10 +45,13 @@ if(NOT TARGET ANTLR4::Runtime AND NOT TARGET ANTLR::Runtime)
     if(NOT DEFINED ANTLR_RUNTIME_LIBRARY AND NOT DEFINED ANTLR_LIBRARY)
         message(STATUS "Attempting to FetchContent antlr/antlr4 to build the C++ runtime")
 
+        # Define the ANTLR 4 branch / commit hash
+        set(ANTLR4_TAG bd8f9930d053ec6a83e7d751e8c6f69138957665)
+
         FetchContent_Declare(
             antlr4
             GIT_REPOSITORY https://github.com/antlr/antlr4.git
-            GIT_TAG dev # This one has fixes not yet merged into main, as of 2025-10-16
+            GIT_TAG ${ANTLR4_TAG} # dev as of 2025-10-16
         )
 
         # This will clone into the build directory and make antlr4_SOURCE_DIR available.
