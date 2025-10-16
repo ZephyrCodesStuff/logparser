@@ -31,8 +31,7 @@ if(NOT TARGET ANTLR4::Runtime AND NOT TARGET ANTLR::Runtime)
         FetchContent_Declare(
             antlr4
             GIT_REPOSITORY https://github.com/antlr/antlr4.git
-            # Pin to a compatible version (change tag if you want a different release)
-            GIT_TAG 4.13.2
+            GIT_TAG dev # This one has fixes not yet merged into main, as of 2025-10-16
         )
 
     # This will clone into the build directory and make antlr4_SOURCE_DIR available.
@@ -108,6 +107,11 @@ set_target_properties(logparser PROPERTIES
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
 )
+
+# For Windows, we have to define `NOMINMAX` to prevent Windows headers from defining `min` and `max` macros.
+if(MSVC)
+    target_compile_definitions(logparser PRIVATE NOMINMAX)
+endif()
 
 # Link to the ANTLR runtime. Support several possible Find module conventions.
 if(TARGET ANTLR4::Runtime)
