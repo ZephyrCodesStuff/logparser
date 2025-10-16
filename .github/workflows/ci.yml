@@ -42,27 +42,22 @@ jobs:
       - name: Checkout repository (uses git)
         uses: actions/checkout@v4
 
-      - name: Configure with CMake (Windows, use preinstalled GCC)
+      - name: Configure with CMake (Windows, MSVC)
         if: matrix.name == 'windows-x86_64'
         shell: pwsh
         run: |
-          Write-Host "Configuring with preinstalled GCC and Ninja on Windows"
-          # build argument array: basic args
-          $args = @('-S', 'parsers/cpp', '-B', 'build', '-G', 'Ninja')
-          # append environment CMAKE_* defs
+          Write-Host "Configuring with Visual Studio 2022 (MSVC) on Windows"
+          $args = @('-S', 'parsers/cpp', '-B', 'build', '-G', 'Visual Studio 17 2022', '-A', 'x64')
           Get-ChildItem env:CMAKE_* | ForEach-Object { $args += "-D$($_.Name)=$($_.Value)" }
-          # set compilers explicitly to the preinstalled gcc/g++
-          $args += '-DCMAKE_C_COMPILER=gcc'
-          $args += '-DCMAKE_CXX_COMPILER=g++'
           Write-Host "Running: cmake $($args -join ' ')"
           & cmake @args
 
-      - name: Build (Windows using preinstalled GCC/Ninja)
+      - name: Build (Windows with MSVC)
         if: matrix.name == 'windows-x86_64'
         shell: pwsh
         run: |
-          Write-Host "Building with Ninja using preinstalled GCC"
-          cmake --build build --parallel
+          Write-Host "Building with MSVC using CMake"
+          cmake --build build --config Release --parallel
 
       - name: Configure with CMake (macOS/Linux)
         if: matrix.name != 'windows-x86_64'

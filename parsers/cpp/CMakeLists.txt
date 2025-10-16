@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 2.8.12...3.15)
 project(logfile_parser_cpp LANGUAGES CXX)
 
+# Use the static runtime on MSVC so the produced binaries do not depend on the
+# redistributable DLLs. This also matches the statically built ANTLR runtime.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+set(_antlr_runtime_is_static OFF)
+
 # Prefer a known Homebrew install or project-local jar if present
 if(NOT ANTLR_EXECUTABLE)
     if(EXISTS "/opt/homebrew/Cellar/antlr/4.13.2/antlr-4.13.2-complete.jar")
@@ -24,6 +32,15 @@ if(NOT TARGET ANTLR4::Runtime AND NOT TARGET ANTLR::Runtime)
 
     include(FetchContent)
 
+    # Ensure the fetched ANTLR runtime is built statically. This keeps the
+    # Windows binary self-contained and avoids shipping libantlr4 DLLs.
+    set(ANTLR4_BUILD_SHARED OFF CACHE BOOL "Build ANTLR4 shared runtime" FORCE)
+    set(ANTLR4_BUILD_STATIC ON CACHE BOOL "Build ANTLR4 static runtime" FORCE)
+    set(ANTLR4_INSTALL OFF CACHE BOOL "Skip installing ANTLR4 runtime" FORCE)
+    if(MSVC)
+        set(ANTLR4_WITH_STATIC_CRT ON CACHE BOOL "Link ANTLR4 runtime against the static Microsoft CRT" FORCE)
+    endif()
+
     # Only fetch/build if we don't already have runtime variables pointing to a prebuilt lib.
     if(NOT DEFINED ANTLR_RUNTIME_LIBRARY AND NOT DEFINED ANTLR_LIBRARY)
         message(STATUS "Attempting to FetchContent antlr/antlr4 to build the C++ runtime")
@@ -34,8 +51,8 @@ if(NOT TARGET ANTLR4::Runtime AND NOT TARGET ANTLR::Runtime)
             GIT_TAG dev # This one has fixes not yet merged into main, as of 2025-10-16
         )
 
-    # This will clone into the build directory and make antlr4_SOURCE_DIR available.
-    FetchContent_MakeAvailable(antlr4)
+        # This will clone into the build directory and make antlr4_SOURCE_DIR available.
+        FetchContent_MakeAvailable(antlr4)
 
         # Make ANTLR CMake helper macros discoverable if provided by the fetched source.
         if(DEFINED antlr4_SOURCE_DIR)
@@ -69,19 +86,20 @@ if(NOT TARGET ANTLR4::Runtime AND NOT TARGET ANTLR::Runtime)
         endif()
 
         # Create alias targets matching common Find module conventions so existing code can link unchanged.
-        if(TARGET antlr4_shared)
-            if(NOT TARGET ANTLR4::Runtime)
-                add_library(ANTLR4::Runtime ALIAS antlr4_shared)
-            endif()
-            if(NOT TARGET ANTLR::Runtime)
-                add_library(ANTLR::Runtime ALIAS antlr4_shared)
-            endif()
-        elseif(TARGET antlr4_static)
+        if(TARGET antlr4_static)
             if(NOT TARGET ANTLR4::Runtime)
                 add_library(ANTLR4::Runtime ALIAS antlr4_static)
             endif()
             if(NOT TARGET ANTLR::Runtime)
                 add_library(ANTLR::Runtime ALIAS antlr4_static)
+            endif()
+            set(_antlr_runtime_is_static ON)
+        elseif(TARGET antlr4_shared)
+            if(NOT TARGET ANTLR4::Runtime)
+                add_library(ANTLR4::Runtime ALIAS antlr4_shared)
+            endif()
+            if(NOT TARGET ANTLR::Runtime)
+                add_library(ANTLR::Runtime ALIAS antlr4_shared)
             endif()
         else()
             message(STATUS "FetchContent provided antlr4 but runtime targets not found; will try bundled runtime or Find module variables")
@@ -124,6 +142,10 @@ elseif(DEFINED ANTLR_LIBRARY)
     target_link_libraries(logparser PRIVATE ${ANTLR_LIBRARY})
 else()
     message(FATAL_ERROR "ANTLR runtime target or variables not found. Verify FindANTLR.cmake")
+endif()
+
+if(_antlr_runtime_is_static)
+    target_compile_definitions(logparser PRIVATE ANTLR4CPP_STATIC)
 endif()
 
 # Add include directories if the find module provided them
