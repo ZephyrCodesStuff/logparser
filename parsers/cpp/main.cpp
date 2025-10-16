@@ -286,7 +286,7 @@ bool parse_file_into_csv( const fs::path& input_file,
     if ( !fs::exists( input_file ) )
     {
         std::cerr << "File not found: " << input_file << '\n';
-        return 2;
+        return false;
     }
 
     // read file into memory via mmap
