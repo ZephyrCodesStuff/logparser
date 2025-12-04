@@ -3,6 +3,11 @@
 #include <cstdio>
 #include "utils.hpp"
 
+#define FLOAT_PRECISION 7
+#define DOUBLE_PRECISION 15
+#define FLOAT_FORMAT "%.7g"
+#define DOUBLE_FORMAT "%.15g"
+
 // Fast integer to string conversion
 inline std::string fast_itoa( int64_t value )
 {
@@ -23,30 +28,71 @@ inline std::string fast_utoa( uint64_t value )
 inline std::string fast_ftoa( double value )
 {
     char buffer[64];
-    auto [ptr, ec] = std::to_chars( buffer, buffer + sizeof( buffer ), value,
-                                    std::chars_format::general, 6 );
-    if ( ec == std::errc{} ) return std::string( buffer, ptr );
+    auto [ptr, ec] =
+        std::to_chars( buffer, buffer + sizeof( buffer ), value,
+                       std::chars_format::general, FLOAT_PRECISION );
+    if ( ec == std::errc{} )
+    {
+        return { buffer, ptr };
+    }
+
     // Fallback for edge cases
-    snprintf( buffer, sizeof( buffer ), "%.6g", value );
-    return std::string( buffer );
+    snprintf( buffer, sizeof( buffer ), FLOAT_FORMAT, value );
+    return { buffer, ptr };
+}
+
+inline std::string fast_dtoa( double value )
+{
+    char buffer[64];
+    auto [ptr, ec] =
+        std::to_chars( buffer, buffer + sizeof( buffer ), value,
+                       std::chars_format::general, DOUBLE_PRECISION );
+    if ( ec == std::errc{} )
+    {
+        return { buffer, ptr };
+    }
+
+    // Fallback for edge cases
+    snprintf( buffer, sizeof( buffer ), DOUBLE_FORMAT, value );
+    return { buffer, ptr };
 }
 
 size_t calc_entry_size( const Device& dev )
 {
     size_t s = 0;
     for ( const auto& f : dev.fields )
+    {
         s += typename_to_size( f.type );
+    }
     return s;
 }
 
 size_t typename_to_size( const std::string& type )
 {
-    if ( type == "s8" || type == "u8" ) return 1;
-    if ( type == "s16" || type == "u16" ) return 2;
-    if ( type == "s32" || type == "u32" ) return 4;
-    if ( type == "s64" || type == "u64" ) return 8;
-    if ( type == "float" ) return sizeof( float );
-    if ( type == "double" ) return sizeof( double );
+    if ( type == "s8" || type == "u8" )
+    {
+        return 1;
+    }
+    if ( type == "s16" || type == "u16" )
+    {
+        return 2;
+    }
+    if ( type == "s32" || type == "u32" )
+    {
+        return 4;
+    }
+    if ( type == "s64" || type == "u64" )
+    {
+        return 8;
+    }
+    if ( type == "float" )
+    {
+        return sizeof( float );
+    }
+    if ( type == "double" )
+    {
+        return sizeof( double );
+    }
     return 0;
 }
 
@@ -101,7 +147,7 @@ std::string read_field_as_string( const uint8_t* ptr, const std::string& type )
     if ( type == "double" )
     {
         double v = read_le< double >( ptr );
-        return fast_ftoa( v );
+        return fast_dtoa( v );
     }
-    return std::string();
+    return {};
 }
