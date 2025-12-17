@@ -12,13 +12,14 @@
 ParsedSection parse_section(
     const uint8_t* data, size_t length,
     const std::unordered_map< uint32_t, size_t >& id2idx,
-    const std::vector< Device >& devices )
+    const std::vector< Device >& devices, const bool mode_force )
 {
     ParsedSection result{ 0, {}, false };
 
     // each section must be at least 5 bytes (4-byte id + 1-byte checksum)
     if ( length < MIN_LEN )
     {
+        std::cout << "Section too short: " << length << " bytes\n";
         return result;
     }
 
@@ -28,15 +29,27 @@ ParsedSection parse_section(
     {
         crc ^= data[i];
     }
+
     if ( crc != data[length - 1] )
     {
-        return result;
+        if ( !mode_force )
+        {
+            std::cout << "Checksum mismatch: calculated "
+                      << static_cast< int >( crc ) << ", expected "
+                      << static_cast< int >( data[length - 1] ) << "\n";
+            return result;
+        } else
+        {
+            std::cout
+                << "Warning: Checksum mismatch (ignoring due to force mode)\n";
+        }
     }
 
     auto device_id = read_le< uint32_t >( data );
     auto device = id2idx.find( device_id );
     if ( device == id2idx.end() )
     {
+        std::cout << "Unknown device ID: " << device_id << "\n";
         return result;
     }
 
@@ -45,6 +58,7 @@ ParsedSection parse_section(
     size_t entrySize = calc_entry_size( dev );
     if ( entrySize == 0 )
     {
+        std::cout << "Device has no fields, cannot parse entries\n";
         return result;
     }
 
@@ -78,7 +92,8 @@ void process_sections_parallel(
     const std::vector< uint8_t >& fileBytes,
     const std::vector< Section >& sections,  // Using offset-based sections
     std::vector< Device >& devices,
-    const std::unordered_map< uint32_t, size_t >& id2idx, unsigned num_threads )
+    const std::unordered_map< uint32_t, size_t >& id2idx, unsigned num_threads,
+    const bool mode_force )
 {
     if ( num_threads == 0 )
     {
@@ -111,7 +126,7 @@ void process_sections_parallel(
             const uint8_t* data = fileBytes.data() + sec.offset;
 
             ParsedSection parsed =
-                parse_section( data, sec.length, id2idx, devices );
+                parse_section( data, sec.length, id2idx, devices, mode_force );
 
             if ( !parsed.valid )
             {
@@ -132,7 +147,7 @@ void process_sections_parallel(
                     uint64_t seq_key = ( section_idx_u64 << 32 ) |
                                        static_cast< uint64_t >( entry_idx );
                     results.add_entry( device_idx, seq_key,
-                                         parsed.entries[entry_idx] );
+                                       parsed.entries[entry_idx] );
                 }
             }
         }
