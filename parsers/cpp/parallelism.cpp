@@ -23,28 +23,6 @@ ParsedSection parse_section(
         return result;
     }
 
-    // checksum is last byte (XOR of all previous bytes)
-    uint8_t crc = 0;
-    for ( size_t i = 0; i + 1 < length; ++i )
-    {
-        crc ^= data[i];
-    }
-
-    if ( crc != data[length - 1] )
-    {
-        if ( !mode_force )
-        {
-            std::cout << "Checksum mismatch: calculated "
-                      << static_cast< int >( crc ) << ", expected "
-                      << static_cast< int >( data[length - 1] ) << "\n";
-            return result;
-        } else
-        {
-            std::cout
-                << "Warning: Checksum mismatch (ignoring due to force mode)\n";
-        }
-    }
-
     auto device_id = read_le< uint32_t >( data );
     auto device = id2idx.find( device_id );
     if ( device == id2idx.end() )
@@ -68,12 +46,37 @@ ParsedSection parse_section(
 
     result.entries.reserve( num_entries );
 
+    // checksum is last byte (XOR of all previous bytes)
+    uint8_t crc = 0;
+    for ( size_t i = 0; i + 1 < length; ++i )
+    {
+        crc ^= data[i];
+    }
+
+    if ( crc != data[length - 1] )
+    {
+        if ( !mode_force )
+        {
+            std::cout << "Checksum mismatch for device " << dev.name << "(ID "
+                      << device_id << ")"
+                      << ": calculated " << static_cast< int >( crc )
+                      << ", expected " << static_cast< int >( data[length - 1] )
+                      << "\n";
+            return result;
+        } else
+        {
+            std::cout << "Warning: Checksum mismatch for device " << dev.name
+                      << "(ID " << device_id << ")"
+                      << " (ignoring due to force mode)\n";
+        }
+    }
+
     for ( size_t entry_idx = 0; entry_idx < num_entries; ++entry_idx )
     {
         std::vector< std::string > entry;
         entry.reserve( dev.fields.size() );
 
-        const uint8_t* p = cursor + entry_idx * entrySize;
+        const uint8_t* p = cursor + ( entry_idx * entrySize );
         for ( size_t f = 0; f < dev.fields.size(); ++f )
         {
             const auto& ftype = dev.fields[f].type;
