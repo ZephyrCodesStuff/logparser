@@ -29,11 +29,24 @@ sensorName: sensorNamePart (SPACE sensorNamePart)*;
 sensorNamePart: IDENTIFIER | NUMBER;
 
 // Data type specification
-dataType: FLOAT_TYPE | U32_TYPE | U8_TYPE | U16_TYPE;
+dataType:
+	U8_TYPE
+	| U16_TYPE
+	| U32_TYPE
+	| U64_TYPE
+	| S8_TYPE
+	| S16_TYPE
+	| S32_TYPE
+	| S64_TYPE
+	| FLOAT_TYPE
+	| DOUBLE_TYPE;
 
 // Unit of measurement
 unitOfMeasurement:
-	unitPart (SLASH unitPart)?; // For compound units like m/s, mdeg/s
+	unitTerm (SLASH unitTerm)*;
+
+unitTerm:
+	unitPart (HAT unitPart)?;
 
 // Part of a unit (can be identifier or number)
 unitPart: IDENTIFIER | NUMBER;
@@ -55,12 +68,19 @@ GT: '>';
 COMMA: ',';
 BACKSLASH: '\\';
 SLASH: '/';
+HAT: '^';
 
 // Data types
-FLOAT_TYPE: 'float';
-U32_TYPE: 'u32';
 U8_TYPE: 'u8';
 U16_TYPE: 'u16';
+U32_TYPE: 'u32';
+U64_TYPE: 'u64';
+S8_TYPE: 's8';
+S16_TYPE: 's16';
+S32_TYPE: 's32';
+S64_TYPE: 's64';
+FLOAT_TYPE: 'float';
+DOUBLE_TYPE: 'double';
 
 // Device ID - exactly 8 digits
 DEVICE_ID_NUMBER:

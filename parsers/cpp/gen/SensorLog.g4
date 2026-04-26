@@ -43,7 +43,10 @@ dataType:
 
 // Unit of measurement
 unitOfMeasurement:
-	unitPart (SLASH unitPart)?; // For compound units like m/s, mdeg/s
+	unitTerm (SLASH unitTerm)*;
+
+unitTerm:
+	unitPart (HAT unitPart)?;
 
 // Part of a unit (can be identifier or number)
 unitPart: IDENTIFIER | NUMBER;
@@ -65,6 +68,7 @@ GT: '>';
 COMMA: ',';
 BACKSLASH: '\\';
 SLASH: '/';
+HAT: '^';
 
 // Data types
 U8_TYPE: 'u8';

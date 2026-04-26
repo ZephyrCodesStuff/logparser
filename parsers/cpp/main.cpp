@@ -80,13 +80,30 @@ std::vector< Section > split_sections( const uint8_t* data, size_t size )
                                      PAD_ALIGN };
 
     size_t start = 0;
-    for ( size_t i = 0; i + 4 <= size; ++i )
+    // Skip any leading padding
+    while ( start < size && data[start] == PAD_ALIGN )
+    {
+        start++;
+    }
+
+    for ( size_t i = start; i + 4 <= size; )
     {
         if ( std::memcmp( &data[i], sep.data(), 4 ) == 0 )
         {
-            sections.push_back( { start, i - start } );
-            start = i + 4;
-            i += 3;  // skip separator bytes
+            if ( i > start )
+            {
+                sections.push_back( { start, i - start } );
+            }
+            // Skip ALL consecutive padding bytes
+            i += 4;
+            while ( i < size && data[i] == PAD_ALIGN )
+            {
+                i++;
+            }
+            start = i;
+        } else
+        {
+            ++i;
         }
     }
     if ( start < size )

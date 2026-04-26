@@ -40,17 +40,23 @@ ParsedSection parse_section(
         return result;
     }
 
-    size_t payload_len = length - 1 - 4;  // remove checksum and id
-    size_t num_entries = payload_len / entrySize;
+    size_t num_entries = ( length - 5 ) / entrySize;
     const uint8_t* cursor = data + 4;
 
     result.entries.reserve( num_entries );
 
-    // checksum is last byte (XOR of all previous bytes)
+    // Calculate CRC only on the actual packet content (ID + entries)
+    // and compare against the final byte of the section. This correctly
+    // ignores any alignment padding bytes (0x1C) that may be present
+    // between the entries and the checksum.
     uint8_t crc = 0;
-    for ( size_t i = 0; i + 1 < length; ++i )
+    for ( size_t i = 0; i < 4; ++i )
     {
         crc ^= data[i];
+    }
+    for ( size_t i = 0; i < num_entries * entrySize; ++i )
+    {
+        crc ^= data[4 + i];
     }
 
     if ( crc != data[length - 1] )
@@ -61,7 +67,8 @@ ParsedSection parse_section(
                       << device_id << ")"
                       << ": calculated " << static_cast< int >( crc )
                       << ", expected " << static_cast< int >( data[length - 1] )
-                      << "\n";
+                      << " (length: " << length << ", entries: " << num_entries
+                      << ")\n";
             return result;
         } else
         {
