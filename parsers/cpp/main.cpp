@@ -192,7 +192,7 @@ bool has_header( const std::string& path )
 
 // Parse a memory buffer (concatenated files) into CSV output directory
 bool parse_buffer_into_csv( const uint8_t* data, size_t fileSize,
-                            const fs::path& outdir, const bool mode_force )
+                            const fs::path& outdir, const ParserConfig& config )
 {
     // make sure file starts with magic `$`
     if ( fileSize < 2 || data[0] != MAGIC[0] || data[1] != MAGIC[1] )
@@ -283,8 +283,7 @@ bool parse_buffer_into_csv( const uint8_t* data, size_t fileSize,
     std::vector< uint8_t > fileBytesVec( data, data + fileSize );
 
     // Use optimized parallel processing
-    process_sections_parallel( fileBytesVec, sections, devices, id2idx, 1,
-                               mode_force );
+    process_sections_parallel( fileBytesVec, sections, devices, id2idx, config );
 
     // write CSV per device
     for ( const auto& dev : devices )
@@ -297,7 +296,8 @@ bool parse_buffer_into_csv( const uint8_t* data, size_t fileSize,
 
 // Make parse_file_into_csv a thin wrapper around the buffer parser
 bool parse_file_into_csv( const fs::path& input_file,
-                          const fs::path& output_folder, const bool mode_force )
+                          const fs::path& output_folder,
+                          const ParserConfig& config )
 {
     if ( !fs::exists( input_file ) )
     {
@@ -308,7 +308,7 @@ bool parse_file_into_csv( const fs::path& input_file,
     // read file into memory via mmap
     MappedFile input_mmap( input_file );
     return parse_buffer_into_csv( input_mmap.data(), input_mmap.size(),
-                                  output_folder, mode_force );
+                                  output_folder, config );
 }
 
 bool join_files( const std::vector< std::string >& files,
@@ -427,13 +427,15 @@ int main( int argc, const char* argv[] )
 {
     auto print_usage = []( const char* prog ) {
         std::cerr << "Usage: " << prog
-                  << " [-j] [-p] [-f] <inputPath> <outputPath>\n";
+                  << " [-j] [-p] [-f] [-d] <inputPath> <outputPath>\n";
         std::cerr << "  -j    join split files into merged .bin batches and "
                      "write to outputPath\n";
         std::cerr << "  -p    parse files (directory -> per-file parsing, or "
                      "single-file) into CSVs\n";
         std::cerr << "  -f    force mode: skip checksum verification when "
                      "parsing files\n";
+        std::cerr << "  -d    debug mode: print hex data for packets with "
+                     "checksum mismatch\n";
         std::cerr << "  -jp   join then parse the merged batches (like tar -cf "
                      "| tar -xf)\n";
     };
@@ -441,8 +443,7 @@ int main( int argc, const char* argv[] )
     bool cmd_join = false;
     bool cmd_parse = false;
 
-    // Skips checksum verification when parsing files
-    bool mode_force = false;
+    ParserConfig config;
 
     std::vector< std::string > positional;
 
@@ -464,7 +465,10 @@ int main( int argc, const char* argv[] )
                         cmd_parse = true;
                         break;
                     case 'f':
-                        mode_force = true;
+                        config.mode_force = true;
+                        break;
+                    case 'd':
+                        config.mode_debug = true;
                         break;
                     default:
                         std::cerr << "Unknown flag: -" << arg[k] << '\n';
@@ -593,8 +597,7 @@ int main( int argc, const char* argv[] )
                 fs::path outdir =
                     fs::path( outputPath ) /
                     fs::path( "outputBIN" + std::to_string( fileCount++ ) );
-                if ( !parse_file_into_csv( fs::path( file ), outdir,
-                                           mode_force ) )
+                if ( !parse_file_into_csv( fs::path( file ), outdir, config ) )
                 {
                     std::cerr << "Failed to parse file: " << file << '\n';
                     return 4;
@@ -606,7 +609,7 @@ int main( int argc, const char* argv[] )
         {
             // single file parse
             if ( !parse_file_into_csv( fs::path( inputPath ),
-                                       fs::path( outputPath ), mode_force ) )
+                                       fs::path( outputPath ), config ) )
             {
                 return 5;
             }
@@ -653,7 +656,7 @@ int main( int argc, const char* argv[] )
             fs::path path = file;
             std::string stemname = path.stem().string();  // e.g. outputBIN0
             fs::path outdir = fs::path( outputPath ) / fs::path( stemname );
-            if ( !parse_file_into_csv( path, outdir, mode_force ) )
+            if ( !parse_file_into_csv( path, outdir, config ) )
             {
                 std::cerr << "Failed to parse merged file: " << file << '\n';
                 return 6;
@@ -675,7 +678,7 @@ int main( int argc, const char* argv[] )
     }
 
     if ( !parse_file_into_csv( fs::path( inputPath ), fs::path( outputPath ),
-                               mode_force ) )
+                               config ) )
     {
         return 5;
     }

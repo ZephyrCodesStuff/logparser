@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <atomic>
+#include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <thread>
 
 #include "parallelism.hpp"
@@ -9,16 +11,19 @@
 
 #define MIN_LEN 5  // Minimum length of a valid section
 
+static std::mutex g_cout_mutex;
+
 ParsedSection parse_section(
     const uint8_t* data, size_t length,
     const std::unordered_map< uint32_t, size_t >& id2idx,
-    const std::vector< Device >& devices, const bool mode_force )
+    const std::vector< Device >& devices, const ParserConfig& config )
 {
     ParsedSection result{ 0, {}, false };
 
     // each section must be at least 5 bytes (4-byte id + 1-byte checksum)
     if ( length < MIN_LEN )
     {
+        std::lock_guard< std::mutex > lock( g_cout_mutex );
         std::cout << "Section too short: " << length << " bytes\n";
         return result;
     }
@@ -27,6 +32,7 @@ ParsedSection parse_section(
     auto device = id2idx.find( device_id );
     if ( device == id2idx.end() )
     {
+        std::lock_guard< std::mutex > lock( g_cout_mutex );
         std::cout << "Unknown device ID: " << device_id << "\n";
         return result;
     }
@@ -36,6 +42,7 @@ ParsedSection parse_section(
     size_t entrySize = calc_entry_size( dev );
     if ( entrySize == 0 )
     {
+        std::lock_guard< std::mutex > lock( g_cout_mutex );
         std::cout << "Device has no fields, cannot parse entries\n";
         return result;
     }
@@ -63,8 +70,9 @@ ParsedSection parse_section(
 
     if ( crc != data[length - 1] )
     {
-        if ( !mode_force )
+        if ( !config.mode_force )
         {
+            std::lock_guard< std::mutex > lock( g_cout_mutex );
             std::cout << "Checksum mismatch for device " << dev.name << "(ID "
                       << device_id << ")"
                       << ": calculated " << static_cast< int >( crc )
@@ -72,12 +80,21 @@ ParsedSection parse_section(
                       << " (length: " << length << ", entries: " << num_entries
                       << ")\n";
 
-            // DEBUG: print all packet bytes, as well as what checksum we calculated
-            
+            if ( config.mode_debug )
+            {
+                std::cout << "Packet data: ";
+                for ( size_t i = 0; i < length + 4; ++i )
+                {
+                    std::cout << std::hex << std::setw( 2 ) << std::setfill( '0' )
+                              << static_cast< int >( data[i] ) << " ";
+                }
+                std::cout << std::dec << "\n";
+            }
 
             return result;
         } else
         {
+            std::lock_guard< std::mutex > lock( g_cout_mutex );
             std::cout << "Warning: Checksum mismatch for device " << dev.name
                       << "(ID " << device_id << ")"
                       << " (ignoring due to force mode)\n";
@@ -123,9 +140,10 @@ void process_sections_parallel(
     const std::vector< uint8_t >& fileBytes,
     const std::vector< Section >& sections,  // Using offset-based sections
     std::vector< Device >& devices,
-    const std::unordered_map< uint32_t, size_t >& id2idx, unsigned num_threads,
-    const bool mode_force )
+    const std::unordered_map< uint32_t, size_t >& id2idx,
+    const ParserConfig& config )
 {
+    unsigned num_threads = config.num_threads;
     if ( num_threads == 0 )
     {
         num_threads = std::thread::hardware_concurrency();
@@ -157,7 +175,7 @@ void process_sections_parallel(
             const uint8_t* data = fileBytes.data() + sec.offset;
 
             ParsedSection parsed =
-                parse_section( data, sec.length, id2idx, devices, mode_force );
+                parse_section( data, sec.length, id2idx, devices, config );
 
             if ( !parsed.valid )
             {

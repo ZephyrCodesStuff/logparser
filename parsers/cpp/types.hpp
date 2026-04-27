@@ -22,6 +22,12 @@ struct Section {
     size_t length;
 };
 
+struct ParserConfig {
+    bool mode_force = false;
+    bool mode_debug = false;
+    unsigned int num_threads = 0;
+};
+
 // compute entry size for a device
 size_t calc_entry_size( const Device& dev );
 size_t typename_to_size( const std::string& type );

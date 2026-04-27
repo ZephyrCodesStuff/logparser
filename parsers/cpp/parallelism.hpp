@@ -39,10 +39,10 @@ struct ThreadResults {
 ParsedSection parse_section(
     const uint8_t* data, size_t length,
     const std::unordered_map< uint32_t, size_t >& id2idx,
-    const std::vector< Device >& devices );
+    const std::vector< Device >& devices, const ParserConfig& config );
 
 void process_sections_parallel(
     const std::vector< uint8_t >& fileBytes,
     const std::vector< Section >& sections, std::vector< Device >& devices,
     const std::unordered_map< uint32_t, size_t >& id2idx,
-    unsigned num_threads = 0, const bool mode_force = false );
+    const ParserConfig& config );
