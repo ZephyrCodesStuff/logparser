@@ -90,17 +90,18 @@ std::vector< Section > split_sections( const uint8_t* data, size_t size )
     {
         if ( std::memcmp( &data[i], sep.data(), 4 ) == 0 )
         {
-            if ( i > start )
+            size_t run_end = i + 4;
+            while ( run_end < size && data[run_end] == PAD_ALIGN )
             {
-                sections.push_back( { start, i - start } );
+                run_end++;
             }
-            // Skip ALL consecutive padding bytes
-            i += 4;
-            while ( i < size && data[i] == PAD_ALIGN )
+            size_t pad_start = run_end - 4;
+            if ( pad_start > start )
             {
-                i++;
+                sections.push_back( { start, pad_start - start } );
             }
-            start = i;
+            start = run_end;
+            i = start;
         } else
         {
             ++i;
@@ -282,7 +283,7 @@ bool parse_buffer_into_csv( const uint8_t* data, size_t fileSize,
     std::vector< uint8_t > fileBytesVec( data, data + fileSize );
 
     // Use optimized parallel processing
-    process_sections_parallel( fileBytesVec, sections, devices, id2idx, 0,
+    process_sections_parallel( fileBytesVec, sections, devices, id2idx, 1,
                                mode_force );
 
     // write CSV per device

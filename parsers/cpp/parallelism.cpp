@@ -40,23 +40,25 @@ ParsedSection parse_section(
         return result;
     }
 
-    size_t num_entries = ( length - 5 ) / entrySize;
+    size_t data_len = length - 5;
     const uint8_t* cursor = data + 4;
+    size_t num_entries = data_len / entrySize;
+    if ( data_len > 0 && data_len < entrySize )
+    {
+        num_entries = 1;
+    } else if ( data_len % entrySize != 0 )
+    {
+        num_entries++;  // one extra partial entry at the end
+    }
 
     result.entries.reserve( num_entries );
 
-    // Calculate CRC only on the actual packet content (ID + entries)
-    // and compare against the final byte of the section. This correctly
-    // ignores any alignment padding bytes (0x1C) that may be present
-    // between the entries and the checksum.
+    // Calculate CRC on all bytes before the checksum.
+    // The device calculates XOR over the ID (4 bytes) and all packet data.
     uint8_t crc = 0;
-    for ( size_t i = 0; i < 4; ++i )
+    for ( size_t i = 0; i < length - 1; ++i )
     {
         crc ^= data[i];
-    }
-    for ( size_t i = 0; i < num_entries * entrySize; ++i )
-    {
-        crc ^= data[4 + i];
     }
 
     if ( crc != data[length - 1] )
@@ -69,6 +71,10 @@ ParsedSection parse_section(
                       << ", expected " << static_cast< int >( data[length - 1] )
                       << " (length: " << length << ", entries: " << num_entries
                       << ")\n";
+
+            // DEBUG: print all packet bytes, as well as what checksum we calculated
+            
+
             return result;
         } else
         {
@@ -84,11 +90,26 @@ ParsedSection parse_section(
         entry.reserve( dev.fields.size() );
 
         const uint8_t* p = cursor + ( entry_idx * entrySize );
+        size_t bytes_available = data_len > ( entry_idx * entrySize )
+                                     ? data_len - ( entry_idx * entrySize )
+                                     : 0;
+
         for ( size_t f = 0; f < dev.fields.size(); ++f )
         {
             const auto& ftype = dev.fields[f].type;
+            size_t fsize = typename_to_size( ftype );
+            if ( bytes_available < fsize )
+            {
+                // Fill remaining fields with empty strings
+                for ( size_t rem = f; rem < dev.fields.size(); ++rem )
+                {
+                    entry.push_back( "" );
+                }
+                break;
+            }
             entry.push_back( read_field_as_string( p, ftype ) );
-            p += typename_to_size( ftype );
+            p += fsize;
+            bytes_available -= fsize;
         }
         result.entries.push_back( std::move( entry ) );
     }
