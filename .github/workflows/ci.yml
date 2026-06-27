@@ -46,8 +46,8 @@ jobs:
         if: matrix.name == 'windows-x86_64'
         shell: pwsh
         run: |
-          Write-Host "Configuring with Visual Studio 2022 (MSVC) on Windows"
-          $args = @('-S', 'parsers/cpp', '-B', 'build', '-G', 'Visual Studio 17 2022', '-A', 'x64')
+          Write-Host "Configuring with Visual Studio 2026 (MSVC) on Windows"
+          $args = @('-S', 'parsers/cpp', '-B', 'build', '-G', 'Visual Studio 18 2026', '-A', 'x64')
           Get-ChildItem env:CMAKE_* | ForEach-Object { $args += "-D$($_.Name)=$($_.Value)" }
           Write-Host "Running: cmake $($args -join ' ')"
           & cmake @args
