@@ -1,13 +1,17 @@
 #include <algorithm>
 #include <array>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <mutex>
 #include <regex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -115,11 +119,11 @@ std::vector< Section > split_sections( const uint8_t* data, size_t size )
     return sections;
 }
 
-void write_csv_for_device( const Device& dev, const fs::path& outdir )
+std::ofstream open_csv_for_device( const Device& dev, const fs::path& outdir )
 {
     if ( dev.fields.empty() )
     {
-        return;
+        return {};
     }
     std::string filename = dev.name;
     std::replace( filename.begin(), filename.end(), ' ', '_' );
@@ -129,7 +133,7 @@ void write_csv_for_device( const Device& dev, const fs::path& outdir )
     if ( !ofs.is_open() )
     {
         std::cerr << "Failed to open " << csv_output_path << " for writing\n";
-        return;
+        return {};
     }
 
     // titles
@@ -143,33 +147,82 @@ void write_csv_for_device( const Device& dev, const fs::path& outdir )
     }
     ofs << '\n';
 
-    // number of rows: min size among fields
-    size_t rows = dev.fields.front().data.size();
-    for ( const auto& field : dev.fields )
-    {
-        rows = std::max( rows, field.data.size() );
-    }
-
-    for ( size_t row = 0; row < rows; ++row )
-    {
-        for ( size_t col = 0; col < dev.fields.size(); ++col )
-        {
-            const auto& vec = dev.fields[col].data;
-            if ( row < vec.size() )
-            {
-                ofs << vec[row];
-            }
-            if ( col + 1 < dev.fields.size() )
-            {
-                ofs << ',';
-            }
-        }
-        ofs << '\n';
-    }
-
-    ofs.close();
-    std::cout << "Wrote " << csv_output_path << " (" << rows << " rows)\n";
+    return ofs;
 }
+
+void write_csv_row( std::ostream& ofs, const Device& dev,
+                    const std::vector< std::string >& row )
+{
+    for ( size_t col = 0; col < dev.fields.size(); ++col )
+    {
+        if ( col < row.size() )
+        {
+            ofs << row[col];
+        }
+        if ( col + 1 < dev.fields.size() )
+        {
+            ofs << ',';
+        }
+    }
+    ofs << '\n';
+}
+
+struct QueuedSectionResult {
+    size_t section_idx;
+    ParsedSection parsed;
+};
+
+template < typename T >
+class BoundedQueue {
+   public:
+    explicit BoundedQueue( size_t capacity ) : capacity_( capacity ) {}
+
+    bool push( T value )
+    {
+        std::unique_lock< std::mutex > lock( mutex_ );
+        not_full_.wait( lock,
+                        [&] { return closed_ || queue_.size() < capacity_; } );
+        if ( closed_ )
+        {
+            return false;
+        }
+
+        queue_.push_back( std::move( value ) );
+        not_empty_.notify_one();
+        return true;
+    }
+
+    bool pop( T& value )
+    {
+        std::unique_lock< std::mutex > lock( mutex_ );
+        not_empty_.wait( lock, [&] { return closed_ || !queue_.empty(); } );
+        if ( queue_.empty() )
+        {
+            return false;
+        }
+
+        value = std::move( queue_.front() );
+        queue_.pop_front();
+        not_full_.notify_one();
+        return true;
+    }
+
+    void close()
+    {
+        std::lock_guard< std::mutex > lock( mutex_ );
+        closed_ = true;
+        not_empty_.notify_all();
+        not_full_.notify_all();
+    }
+
+   private:
+    size_t capacity_;
+    std::deque< T > queue_;
+    bool closed_ = false;
+    std::mutex mutex_;
+    std::condition_variable not_empty_;
+    std::condition_variable not_full_;
+};
 
 bool has_header( const std::string& path )
 {
@@ -279,16 +332,170 @@ bool parse_buffer_into_csv( const uint8_t* data, size_t fileSize,
         fs::create_directories( outdir );
     }
 
-    // Convert buffer to vector for parallel processing
-    std::vector< uint8_t > fileBytesVec( data, data + fileSize );
-
-    // Use optimized parallel processing
-    process_sections_parallel( fileBytesVec, sections, devices, id2idx, config );
-
-    // write CSV per device
-    for ( const auto& dev : devices )
+    // Open output files up front.
+    std::vector< std::ofstream > deviceOutputs( devices.size() );
+    std::vector< size_t > rowCounts( devices.size(), 0 );
+    std::vector< fs::path > csvPaths( devices.size() );
+    for ( size_t device_idx = 0; device_idx < devices.size(); ++device_idx )
     {
-        write_csv_for_device( dev, outdir );
+        const auto& dev = devices[device_idx];
+        if ( dev.fields.empty() )
+        {
+            continue;
+        }
+
+        std::string filename = dev.name;
+        std::replace( filename.begin(), filename.end(), ' ', '_' );
+        csvPaths[device_idx] = outdir / ( filename + ".csv" );
+        deviceOutputs[device_idx] = open_csv_for_device( dev, outdir );
+        if ( !deviceOutputs[device_idx].is_open() )
+        {
+            return false;
+        }
+    }
+
+    unsigned num_threads = config.num_threads;
+    if ( num_threads == 0 )
+    {
+        num_threads = std::thread::hardware_concurrency();
+    }
+    if ( num_threads == 0 )
+    {
+        num_threads = 1;
+    }
+
+    BoundedQueue< QueuedSectionResult > resultQueue(
+        std::max( 1u, num_threads * 2u ) );
+    std::atomic< size_t > next_section{ 1 };
+    std::atomic< size_t > worker_failures{ 0 };
+
+    auto worker = [&]( unsigned /*thread_id*/ ) {
+        while ( true )
+        {
+            size_t section_idx = next_section.fetch_add( 1 );
+            if ( section_idx >= sections.size() )
+            {
+                break;
+            }
+
+            const auto& sec = sections[section_idx];
+            const uint8_t* sectionData = data + sec.offset;
+            ParsedSection parsed = parse_section( sectionData, sec.length,
+                                                  id2idx, devices, config );
+
+            if ( !resultQueue.push(
+                     QueuedSectionResult{ section_idx, std::move( parsed ) } ) )
+            {
+                worker_failures.fetch_add( 1 );
+                break;
+            }
+        }
+    };
+
+    std::vector< std::thread > workers;
+    workers.reserve( num_threads );
+    for ( unsigned i = 0; i < num_threads; ++i )
+    {
+        workers.emplace_back( worker, i );
+    }
+
+    std::thread writer( [&] {
+        std::map< size_t, ParsedSection > pending;
+        size_t next_expected = 1;
+        QueuedSectionResult item{ 0, {} };
+
+        while ( resultQueue.pop( item ) )
+        {
+            pending.emplace( item.section_idx, std::move( item.parsed ) );
+
+            while ( true )
+            {
+                auto it = pending.find( next_expected );
+                if ( it == pending.end() )
+                {
+                    break;
+                }
+
+                ParsedSection parsed = std::move( it->second );
+                pending.erase( it );
+
+                if ( parsed.valid )
+                {
+                    auto deviceIt = id2idx.find( parsed.device_id );
+                    if ( deviceIt != id2idx.end() )
+                    {
+                        size_t device_idx = deviceIt->second;
+                        auto& ofs = deviceOutputs[device_idx];
+                        if ( ofs.is_open() )
+                        {
+                            for ( const auto& entry : parsed.entries )
+                            {
+                                write_csv_row( ofs, devices[device_idx],
+                                               entry );
+                                rowCounts[device_idx]++;
+                            }
+                        }
+                    }
+                }
+
+                ++next_expected;
+            }
+        }
+
+        while ( true )
+        {
+            auto it = pending.find( next_expected );
+            if ( it == pending.end() )
+            {
+                break;
+            }
+
+            ParsedSection parsed = std::move( it->second );
+            pending.erase( it );
+
+            if ( parsed.valid )
+            {
+                auto deviceIt = id2idx.find( parsed.device_id );
+                if ( deviceIt != id2idx.end() )
+                {
+                    size_t device_idx = deviceIt->second;
+                    auto& ofs = deviceOutputs[device_idx];
+                    if ( ofs.is_open() )
+                    {
+                        for ( const auto& entry : parsed.entries )
+                        {
+                            write_csv_row( ofs, devices[device_idx], entry );
+                            rowCounts[device_idx]++;
+                        }
+                    }
+                }
+            }
+
+            ++next_expected;
+        }
+    } );
+
+    for ( auto& workerThread : workers )
+    {
+        workerThread.join();
+    }
+    resultQueue.close();
+    writer.join();
+
+    if ( worker_failures.load() > 0 )
+    {
+        std::cerr << "Warning: result queue closed while workers were active\n";
+    }
+
+    for ( size_t device_idx = 0; device_idx < devices.size(); ++device_idx )
+    {
+        auto& ofs = deviceOutputs[device_idx];
+        if ( ofs.is_open() )
+        {
+            ofs.close();
+            std::cout << "Wrote " << csvPaths[device_idx] << " ("
+                      << rowCounts[device_idx] << " rows)\n";
+        }
     }
 
     return true;

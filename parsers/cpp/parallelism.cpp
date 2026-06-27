@@ -85,7 +85,8 @@ ParsedSection parse_section(
                 std::cout << "Packet data: ";
                 for ( size_t i = 0; i < length + 4; ++i )
                 {
-                    std::cout << std::hex << std::setw( 2 ) << std::setfill( '0' )
+                    std::cout << std::hex << std::setw( 2 )
+                              << std::setfill( '0' )
                               << static_cast< int >( data[i] ) << " ";
                 }
                 std::cout << std::dec << "\n";
@@ -137,12 +138,17 @@ ParsedSection parse_section(
 
 // Lock-free parallel processing using per-thread buffers
 void process_sections_parallel(
-    const std::vector< uint8_t >& fileBytes,
+    const uint8_t* fileBytes, size_t fileSize,
     const std::vector< Section >& sections,  // Using offset-based sections
     std::vector< Device >& devices,
     const std::unordered_map< uint32_t, size_t >& id2idx,
     const ParserConfig& config )
 {
+    if ( fileBytes == nullptr || fileSize == 0 )
+    {
+        return;
+    }
+
     unsigned num_threads = config.num_threads;
     if ( num_threads == 0 )
     {
@@ -172,10 +178,17 @@ void process_sections_parallel(
             }
 
             const auto& sec = sections[section_idx];
-            const uint8_t* data = fileBytes.data() + sec.offset;
+            if ( sec.offset >= fileSize )
+            {
+                continue;
+            }
+
+            const uint8_t* data = fileBytes + sec.offset;
+            size_t available = fileSize - sec.offset;
+            size_t sectionLength = std::min( sec.length, available );
 
             ParsedSection parsed =
-                parse_section( data, sec.length, id2idx, devices, config );
+                parse_section( data, sectionLength, id2idx, devices, config );
 
             if ( !parsed.valid )
             {
@@ -215,6 +228,7 @@ void process_sections_parallel(
     {
         t.join();
     }
+
     // Merge results (single-threaded, no contention) preserving sequence order
     for ( size_t dev_idx = 0; dev_idx < devices.size(); ++dev_idx )
     {

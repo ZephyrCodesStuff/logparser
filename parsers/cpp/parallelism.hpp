@@ -30,9 +30,7 @@ struct ThreadResults {
 
     void add_entry( size_t device_idx, uint64_t seq_key,
                     const std::vector< std::string >& entry )
-    {
-        deviceBuffers[device_idx].emplace_back( seq_key, entry );
-    }
+    { deviceBuffers[device_idx].emplace_back( seq_key, entry ); }
 };
 
 // Function declarations
@@ -42,7 +40,7 @@ ParsedSection parse_section(
     const std::vector< Device >& devices, const ParserConfig& config );
 
 void process_sections_parallel(
-    const std::vector< uint8_t >& fileBytes,
+    const uint8_t* fileBytes, size_t fileSize,
     const std::vector< Section >& sections, std::vector< Device >& devices,
     const std::unordered_map< uint32_t, size_t >& id2idx,
     const ParserConfig& config );
